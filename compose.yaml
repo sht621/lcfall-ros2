@@ -1,0 +1,27 @@
+services:
+  lcfall:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: lcfall-ros2-image
+    container_name: lcfall-ros2-container
+    
+    network_mode: host
+    ipc: host
+    
+    privileged: true
+    
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - .:/root/ros2_ws/src/LCFall
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, utility]
