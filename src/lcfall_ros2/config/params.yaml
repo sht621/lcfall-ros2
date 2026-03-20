@@ -1,0 +1,55 @@
+# ==============================================================
+# lcfall_ros2 パラメータ設定
+# ==============================================================
+
+# --------------------------------------------------------------
+# sync_preprocess_node
+# --------------------------------------------------------------
+sync_preprocess_node:
+  ros__parameters:
+    # カメラ
+    camera_topic: "/camera/image_raw"
+    image_width: 1280
+    image_height: 720
+    skeleton_device: "cuda:0"
+
+    # LiDAR
+    lidar_topic: "/livox/lidar"
+
+    # 同期
+    sync_queue_size: 10
+    sync_slop: 0.05
+
+    # ROI [m] - 実機環境に合わせて調整
+    roi_x_min: 0.0
+    roi_x_max: 5.0
+    roi_y_min: -2.0
+    roi_y_max: 2.0
+    roi_z_min: 0.1
+    roi_z_max: 2.0
+
+    # 背景モデル
+    background_model_path: "/data/background/background_voxel_map.npz"
+
+    # 座標変換
+    apply_coordinate_transform: false
+
+# --------------------------------------------------------------
+# inference_node
+# --------------------------------------------------------------
+inference_node:
+  ros__parameters:
+    inference_stride: 10
+    model_path: ""          # TODO: 学習済みモデルのパスを設定
+    device: "cuda:0"
+
+# --------------------------------------------------------------
+# visualization_node
+# --------------------------------------------------------------
+visualization_node:
+  ros__parameters:
+    camera_topic: "/camera/image_raw"
+    lidar_topic: "/livox/lidar"
+    image_width: 1280
+    image_height: 720
+    window_name: "LCFall ROS2 Demo"
