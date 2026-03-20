@@ -20,6 +20,8 @@ RUN apt-get update && apt-get install -y \
     && apt-get update && apt-get install -y \
     ros-humble-desktop \
     ros-humble-realsense2-camera \
+    ros-humble-cv-bridge \
+    ros-humble-message-filters \
     python3-colcon-common-extensions python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
@@ -34,7 +36,18 @@ RUN git clone --depth 1 https://github.com/Livox-SDK/Livox-SDK2.git && \
     cd / && rm -rf /Livox-SDK2
 
 # =============================================================
-# 4. Python ML ライブラリ (PyTorch & OpenMMLab)
+# 4. livox_ros_driver2 (ROS2 パッケージビルド)
+# =============================================================
+WORKDIR /root/ros2_ws
+RUN mkdir -p src && \
+    git clone --depth 1 https://github.com/Livox-SDK/livox_ros_driver2.git src/livox_ros_driver2 && \
+    . /opt/ros/humble/setup.sh && \
+    colcon build --packages-select livox_ros_driver2 --cmake-args -DROS_EDITION="ROS2" -DHUMBLE_ROS="humble" && \
+    echo "source /root/ros2_ws/install/setup.bash" >> /root/.bashrc && \
+    rm -rf build log
+
+# =============================================================
+# 5. Python ML ライブラリ (PyTorch & OpenMMLab)
 # =============================================================
 RUN pip3 install --upgrade pip
 RUN pip3 install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu121
@@ -43,7 +56,12 @@ RUN pip3 install openmim && \
     pip3 install mmpose==1.3.1 mmdet==3.3.0 "mmaction>=1.0.0"
 
 # =============================================================
-# 5. ワークスペース設定
+# 6. Python 追加依存 (可視化・点群処理)
+# =============================================================
+RUN pip3 install numpy opencv-python-headless
+
+# =============================================================
+# 7. ワークスペース設定
 # =============================================================
 WORKDIR /root/ros2_ws
 ENV ROS_DISTRO=humble

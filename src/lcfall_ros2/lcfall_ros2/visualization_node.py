@@ -22,7 +22,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 
 from sensor_msgs.msg import Image, PointCloud2
 
-from lcfall_msgs.msg import FallDetectionResult
+from lcfall_msgs.msg import FallDetectionResult, PreprocessedFrame
 
 try:
     import cv2
@@ -39,10 +39,10 @@ except ImportError:
 
 # COCO 17 keypoint skeleton 接続定義
 SKELETON_CONNECTIONS = [
-    (0, 1), (0, 2), (1, 3), (2, 4),      # 顔
-    (5, 6), (5, 7), (7, 9), (6, 8),      # 上半身
-    (8, 10), (5, 11), (6, 12), (11, 12),  # 体幹
-    (11, 13), (13, 15), (12, 14), (14, 16),  # 下半身
+    (0, 1), (0, 2), (1, 3), (2, 4),          # 顔
+    (5, 6), (5, 7), (7, 9), (6, 8),          # 上半身
+    (8, 10), (5, 11), (6, 12), (11, 12),      # 体幹
+    (11, 13), (13, 15), (12, 14), (14, 16),   # 下半身
 ]
 
 # Skeleton のキーポイント数 / 次元
@@ -59,6 +59,9 @@ COLOR_GREEN = (0, 255, 0)
 COLOR_RED = (0, 0, 255)
 COLOR_WHITE = (255, 255, 255)
 COLOR_BLACK = (0, 0, 0)
+
+# skeleton 描画しきい値
+SKELETON_SCORE_THRESHOLD = 0.3
 
 
 class VisualizationNode(Node):
@@ -94,6 +97,8 @@ class VisualizationNode(Node):
         self._latest_image: Optional[NDArray[np.uint8]] = None
         self._latest_points: Optional[NDArray[np.float32]] = None
         self._latest_result: Optional[FallDetectionResult] = None
+        self._latest_skeleton: Optional[NDArray[np.float32]] = None
+        self._latest_preprocessed_pc: Optional[NDArray[np.float32]] = None
         self._frame_count: int = 0
         self._bridge = CvBridge() if HAS_CVBRIDGE else None
 
@@ -116,6 +121,13 @@ class VisualizationNode(Node):
             FallDetectionResult,
             "/fall_detection/result",
             self._result_callback,
+            10,
+        )
+        # 前処理済みフレーム (skeleton + 前景点群)
+        self.create_subscription(
+            PreprocessedFrame,
+            "/preprocessed/frame",
+            self._preprocessed_callback,
             10,
         )
 
@@ -148,7 +160,7 @@ class VisualizationNode(Node):
             )
 
     def _lidar_callback(self, msg: PointCloud2) -> None:
-        """LiDAR 点群を更新."""
+        """LiDAR 生点群を更新 (正面投影用)."""
         try:
             from sensor_msgs_py import point_cloud2 as pc2
 
@@ -156,7 +168,6 @@ class VisualizationNode(Node):
                 msg, field_names=("x", "y", "z"), skip_nans=True
             )
             self._latest_points = points.astype(np.float32)
-            self._frame_count += 1
         except Exception as e:
             self.get_logger().error(
                 f"PointCloud2 read error: {e}",
@@ -167,13 +178,23 @@ class VisualizationNode(Node):
         """転倒検知結果を更新."""
         self._latest_result = msg
 
+    def _preprocessed_callback(self, msg: PreprocessedFrame) -> None:
+        """前処理済みフレーム (skeleton + 前景点群) を更新."""
+        self._latest_skeleton = np.array(
+            msg.skeleton_2d, dtype=np.float32
+        )
+        self._latest_preprocessed_pc = np.array(
+            msg.pointcloud_frame, dtype=np.float32
+        )
+        self._frame_count += 1
+
     # ==================================================================
     # 描画
     # ==================================================================
 
     def _draw(self) -> None:
         """1 ウィンドウ左右 2 画面を描画."""
-        # 左画面: カメラ画像 (+ skeleton)
+        # 左画面: カメラ画像 + skeleton
         left = self._draw_camera_panel()
 
         # 右画面: 点群正面投影
@@ -203,29 +224,79 @@ class VisualizationNode(Node):
                 cv2.FONT_HERSHEY_SIMPLEX, 1.0, COLOR_WHITE, 2,
             )
 
-        # skeleton overlay (visualization_node は /preprocessed/frame は
-        # subscribe していないため、ここでは最新の推論結果に含まれる
-        # skeleton 情報は利用せず、別途 skeleton 描画が必要な場合は
-        # /preprocessed/frame も subscribe する拡張が考えられる)
-        # TODO: skeleton overlay の追加実装
-        # 現時点では画像のみ表示
+        # skeleton overlay
+        if self._latest_skeleton is not None:
+            self._draw_skeleton_overlay(panel, self._latest_skeleton)
 
         return panel
 
+    def _draw_skeleton_overlay(
+        self,
+        panel: NDArray[np.uint8],
+        skeleton: NDArray[np.float32],
+    ) -> None:
+        """skeleton を画像上に描画 (緑).
+
+        skeleton は (51,) = (x_norm, y_norm, score) × 17 keypoints。
+        正規化座標をパネルサイズにスケーリングして描画する。
+
+        Args:
+            panel: 描画先画像 (VIS_WIDTH × VIS_HEIGHT)。
+            skeleton: (51,) float32 正規化 skeleton。
+        """
+        panel_h, panel_w = panel.shape[:2]
+        keypoints = []
+
+        for k in range(NUM_KEYPOINTS):
+            x_norm = skeleton[k * KEYPOINT_DIMS + 0]
+            y_norm = skeleton[k * KEYPOINT_DIMS + 1]
+            score = skeleton[k * KEYPOINT_DIMS + 2]
+
+            px = int(x_norm * panel_w)
+            py = int(y_norm * panel_h)
+            keypoints.append((px, py, score))
+
+        # キーポイント描画
+        for px, py, score in keypoints:
+            if score > SKELETON_SCORE_THRESHOLD:
+                cv2.circle(panel, (px, py), 4, COLOR_GREEN, -1)
+
+        # ボーン (接続線) 描画
+        for i, j in SKELETON_CONNECTIONS:
+            if (keypoints[i][2] > SKELETON_SCORE_THRESHOLD and
+                    keypoints[j][2] > SKELETON_SCORE_THRESHOLD):
+                pt1 = (keypoints[i][0], keypoints[i][1])
+                pt2 = (keypoints[j][0], keypoints[j][1])
+                cv2.line(panel, pt1, pt2, COLOR_GREEN, 2)
+
     def _draw_pointcloud_panel(self) -> NDArray[np.uint8]:
-        """右画面: 点群の正面投影 (XZ 平面)."""
+        """右画面: 前景点群の正面投影 (XZ 平面).
+
+        /preprocessed/frame の前景点群を優先的に使用する。
+        未受信の場合は /livox/lidar の生点群を表示する。
+        """
         panel = np.zeros(
             (VIS_HEIGHT, VIS_WIDTH, 3), dtype=np.uint8
         )
 
-        if self._latest_points is None or self._latest_points.shape[0] == 0:
+        # 前処理済み前景点群を優先使用
+        points = None
+        if (self._latest_preprocessed_pc is not None and
+                not np.allclose(self._latest_preprocessed_pc, 0.0)):
+            # (768,) → (256, 3)
+            points = self._latest_preprocessed_pc.reshape(NUM_POINTS, 3)
+            # 全ゼロ点を除外
+            non_zero_mask = np.any(points != 0.0, axis=1)
+            points = points[non_zero_mask]
+        elif self._latest_points is not None:
+            points = self._latest_points
+
+        if points is None or points.shape[0] == 0:
             cv2.putText(
                 panel, "No LiDAR", (VIS_WIDTH // 4, VIS_HEIGHT // 2),
                 cv2.FONT_HERSHEY_SIMPLEX, 1.0, COLOR_WHITE, 2,
             )
             return panel
-
-        points = self._latest_points
 
         # 正面投影: X → 画面横, Z → 画面縦 (上下反転)
         x = points[:, 0]
@@ -247,7 +318,7 @@ class VisualizationNode(Node):
 
         # 点を描画 (緑)
         for i in range(min(len(px), 5000)):
-            cv2.circle(panel, (int(px[i]), int(pz[i])), 1, COLOR_GREEN, -1)
+            cv2.circle(panel, (int(px[i]), int(pz[i])), 2, COLOR_GREEN, -1)
 
         return panel
 
