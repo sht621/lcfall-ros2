@@ -5,7 +5,7 @@
 inference_stride ごとに:
   1. skeleton_2d → heatmap (17, 48, 56, 56)
   2. pointcloud_frame → グローバル正規化 (48, 256, 3)
-  3. 融合モデルで推論 (現在はダミー)
+  3. CameraLiDARFusionModel で推論
   4. FallDetectionResult を /fall_detection/result に publish
 """
 
@@ -58,17 +58,31 @@ class InferenceNode(Node):
         # パラメータ
         # ==============================================================
         self.declare_parameter("inference_stride", 10)
-        self.declare_parameter("model_path", "")
         self.declare_parameter("device", "cuda:0")
+
+        # モデルチェックポイントパス
+        self.declare_parameter("camera_config_path", "")
+        self.declare_parameter("camera_checkpoint_path", "")
+        self.declare_parameter("lidar_checkpoint_path", "")
+        self.declare_parameter("fusion_checkpoint_path", "")
 
         self._stride: int = (
             self.get_parameter("inference_stride").value
         )
-        self._model_path: str = (
-            self.get_parameter("model_path").value
-        )
         self._device: str = (
             self.get_parameter("device").value
+        )
+        self._camera_config_path: str = (
+            self.get_parameter("camera_config_path").value
+        )
+        self._camera_checkpoint_path: str = (
+            self.get_parameter("camera_checkpoint_path").value
+        )
+        self._lidar_checkpoint_path: str = (
+            self.get_parameter("lidar_checkpoint_path").value
+        )
+        self._fusion_checkpoint_path: str = (
+            self.get_parameter("fusion_checkpoint_path").value
         )
 
         # ==============================================================
@@ -77,7 +91,7 @@ class InferenceNode(Node):
         self._buffer: RingBuffer[FrameData] = RingBuffer(self.WINDOW_SIZE)
 
         # ==============================================================
-        # 推論モデル (将来差し替え)
+        # 推論モデル
         # ==============================================================
         self._model = self._load_model()
 
@@ -107,27 +121,83 @@ class InferenceNode(Node):
     # ==================================================================
 
     def _load_model(self):
-        """推論モデルをロード.
+        """CameraLiDARFusionModel をロード.
+
+        3 つのチェックポイント (Camera, LiDAR, FusionHead) が
+        すべて設定されている場合のみモデルをロードする。
+        いずれかが未設定の場合はダミー推論にフォールバック。
 
         Returns:
-            モデルオブジェクト。未確定のため None を返す。
+            CameraLiDARFusionModel またはNone（ダミー推論用）。
         """
-        if self._model_path:
+        all_paths_set = all([
+            self._camera_config_path,
+            self._camera_checkpoint_path,
+            self._lidar_checkpoint_path,
+            self._fusion_checkpoint_path,
+        ])
+
+        if not all_paths_set:
+            missing = []
+            if not self._camera_config_path:
+                missing.append("camera_config_path")
+            if not self._camera_checkpoint_path:
+                missing.append("camera_checkpoint_path")
+            if not self._lidar_checkpoint_path:
+                missing.append("lidar_checkpoint_path")
+            if not self._fusion_checkpoint_path:
+                missing.append("fusion_checkpoint_path")
+            self.get_logger().warn(
+                f"Missing model paths: {missing}. "
+                f"Using dummy inference."
+            )
+            return None
+
+        try:
+            import torch
+            from lcfall_ros2.models.fusion_model import (
+                CameraLiDARFusionModel,
+            )
+
+            self.get_logger().info("Loading fusion model ...")
             self.get_logger().info(
-                f"Loading model from {self._model_path} ..."
+                f"  Camera config:     {self._camera_config_path}"
             )
-            # TODO: 実際のモデルロード処理
-            # model = torch.load(self._model_path, map_location=self._device)
-            # model.eval()
-            # return model
-            self.get_logger().warn(
-                "Model loading not yet implemented. Using dummy inference."
+            self.get_logger().info(
+                f"  Camera checkpoint: {self._camera_checkpoint_path}"
             )
-        else:
-            self.get_logger().warn(
-                "No model_path specified. Using dummy inference."
+            self.get_logger().info(
+                f"  LiDAR checkpoint:  {self._lidar_checkpoint_path}"
             )
-        return None
+            self.get_logger().info(
+                f"  Fusion checkpoint: {self._fusion_checkpoint_path}"
+            )
+
+            model = CameraLiDARFusionModel(
+                camera_config_path=self._camera_config_path,
+                camera_checkpoint_path=self._camera_checkpoint_path,
+                lidar_checkpoint_path=self._lidar_checkpoint_path,
+                fusion_checkpoint_path=self._fusion_checkpoint_path,
+                num_classes=2,
+                dropout=0.5,
+                device=self._device,
+            )
+
+            model.to(self._device)
+            model.eval()
+
+            self.get_logger().info(
+                "✓ Fusion model loaded successfully "
+                f"(device={self._device})"
+            )
+            return model
+
+        except Exception as e:
+            self.get_logger().error(
+                f"Failed to load model: {e}. "
+                f"Falling back to dummy inference."
+            )
+            return None
 
     # ==================================================================
     # コールバック
@@ -220,9 +290,7 @@ class InferenceNode(Node):
         heatmaps: NDArray[np.float32],
         pointclouds: NDArray[np.float32],
     ) -> tuple[int, float]:
-        """実際のモデル推論.
-
-        TODO: 融合モデルの実装後に差し替える。
+        """CameraLiDARFusionModel による推論.
 
         Args:
             heatmaps: (17, 48, 56, 56)
@@ -231,19 +299,28 @@ class InferenceNode(Node):
         Returns:
             (prediction, confidence)
         """
-        # TODO: 以下のような処理を実装する
-        # heatmap_tensor = to_torch_tensor(heatmaps).unsqueeze(0)
-        # pc_tensor = to_torch_tensor(pointclouds).unsqueeze(0)
-        # with torch.no_grad():
-        #     output = self._model(heatmap_tensor, pc_tensor)
-        #     prob = torch.softmax(output, dim=1)
-        #     confidence = prob[0, 1].item()
-        #     prediction = 1 if confidence > 0.5 else 0
-        # return prediction, confidence
-        self.get_logger().warn(
-            "Model inference not implemented. Falling back to dummy."
-        )
-        return self._dummy_inference(heatmaps, pointclouds)
+        import torch
+
+        # numpy → torch tensor, バッチ次元追加
+        # heatmap: (17, 48, 56, 56) → (1, 17, 48, 56, 56)
+        heatmap_tensor = torch.from_numpy(heatmaps).unsqueeze(0).float()
+        # pointcloud: (48, 256, 3) → (1, 48, 256, 3)
+        pc_tensor = torch.from_numpy(pointclouds).unsqueeze(0).float()
+
+        # デバイスに転送
+        heatmap_tensor = heatmap_tensor.to(self._device)
+        pc_tensor = pc_tensor.to(self._device)
+
+        with torch.no_grad():
+            output = self._model(heatmap_tensor, pc_tensor)  # (1, 2)
+            prob = torch.softmax(output, dim=1)  # (1, 2)
+
+            # class 0 = fall, class 1 = non-fall (LCFall の convention)
+            fall_prob = prob[0, 0].item()
+            prediction = 1 if fall_prob > 0.5 else 0
+            confidence = fall_prob if prediction == 1 else (1.0 - fall_prob)
+
+        return prediction, confidence
 
     def _dummy_inference(
         self,

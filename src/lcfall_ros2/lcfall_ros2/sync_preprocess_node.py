@@ -29,7 +29,8 @@ from lcfall_ros2.utils.skeleton_extraction import SkeletonExtractor
 from lcfall_ros2.utils.lidar_preprocessing import (
     pointcloud2_to_numpy,
     apply_roi,
-    apply_transform,
+    apply_lidar_rotation,
+    create_rotation_matrix,
     reshape_pointcloud,
 )
 from lcfall_ros2.utils.background_subtraction import BackgroundModel
@@ -71,8 +72,11 @@ class SyncPreprocessNode(Node):
             "/data/background/background_voxel_map.npz",
         )
 
-        # 座標変換 (必要に応じて設定)
-        self.declare_parameter("apply_coordinate_transform", False)
+        # 座標変換 (LiDAR センサ座標 → 部屋座標)
+        self.declare_parameter("apply_coordinate_transform", True)
+        self.declare_parameter("lidar_roll", 1.1)    # X軸回転 [deg]
+        self.declare_parameter("lidar_pitch", 27.8)   # Y軸回転 [deg]
+        self.declare_parameter("lidar_yaw", 0.0)      # Z軸回転 [deg]
 
         # ==============================================================
         # パラメータ取得
@@ -115,6 +119,20 @@ class SyncPreprocessNode(Node):
         self._apply_transform: bool = (
             self.get_parameter("apply_coordinate_transform").value
         )
+
+        # 回転行列を起動時に計算してキャッシュ
+        self._rotation_matrix = None
+        if self._apply_transform:
+            lidar_roll: float = self.get_parameter("lidar_roll").value
+            lidar_pitch: float = self.get_parameter("lidar_pitch").value
+            lidar_yaw: float = self.get_parameter("lidar_yaw").value
+            self._rotation_matrix = create_rotation_matrix(
+                lidar_roll, lidar_pitch, lidar_yaw
+            )
+            self.get_logger().info(
+                f"LiDAR rotation enabled: "
+                f"roll={lidar_roll}°, pitch={lidar_pitch}°, yaw={lidar_yaw}°"
+            )
 
         # ==============================================================
         # Skeleton 抽出器 (GPU)
@@ -295,10 +313,11 @@ class SyncPreprocessNode(Node):
             if points.shape[0] == 0:
                 return np.zeros(256 * 3, dtype=np.float32)
 
-            # 座標変換 (必要な場合のみ)
-            # TODO: 実機に合わせて rotation_matrix / translation を設定
+            # 座標変換: センサ座標 → 部屋座標
             if self._apply_transform:
-                points = apply_transform(points)
+                points = apply_lidar_rotation(
+                    points, rotation_matrix=self._rotation_matrix
+                )
 
             # ROI フィルタ
             points = apply_roi(points, self._roi_min, self._roi_max)

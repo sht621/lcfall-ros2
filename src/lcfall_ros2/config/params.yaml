@@ -31,8 +31,11 @@ sync_preprocess_node:
     # 背景モデル
     background_model_path: "/data/background/background_voxel_map.npz"
 
-    # 座標変換
-    apply_coordinate_transform: false
+    # 座標変換 (LiDAR センサ座標 → 部屋座標)
+    apply_coordinate_transform: true
+    lidar_roll: 1.1     # X軸回転 [deg]
+    lidar_pitch: 27.8   # Y軸回転 [deg] (カメラマウント角度由来)
+    lidar_yaw: 0.0      # Z軸回転 [deg]
 
 # --------------------------------------------------------------
 # inference_node
@@ -40,8 +43,17 @@ sync_preprocess_node:
 inference_node:
   ros__parameters:
     inference_stride: 10
-    model_path: ""          # TODO: 学習済みモデルのパスを設定
     device: "cuda:0"
+
+    # PoseC3D (カメラ) 設定・チェックポイント
+    camera_config_path: "/root/ros2_ws/install/lcfall_ros2/share/lcfall_ros2/config/slowonly_r50_inference.py"
+    camera_checkpoint_path: "/data/checkpoints/camera/best_model.pth"
+
+    # PointNet++ + GRU (LiDAR) チェックポイント
+    lidar_checkpoint_path: "/data/checkpoints/lidar/best_model.pth"
+
+    # Fusion Head チェックポイント
+    fusion_checkpoint_path: "/data/checkpoints/fusion/best_model.pth"
 
 # --------------------------------------------------------------
 # visualization_node
