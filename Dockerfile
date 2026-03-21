@@ -41,6 +41,7 @@ RUN git clone --depth 1 https://github.com/Livox-SDK/Livox-SDK2.git && \
 WORKDIR /root/ros2_ws
 RUN mkdir -p src && \
     git clone --depth 1 https://github.com/Livox-SDK/livox_ros_driver2.git src/livox_ros_driver2 && \
+    cp src/livox_ros_driver2/package_ROS2.xml src/livox_ros_driver2/package.xml && \
     . /opt/ros/humble/setup.sh && \
     colcon build --packages-select livox_ros_driver2 --cmake-args -DROS_EDITION="ROS2" -DHUMBLE_ROS="humble" && \
     echo "source /root/ros2_ws/install/setup.bash" >> /root/.bashrc && \
@@ -51,14 +52,18 @@ RUN mkdir -p src && \
 # =============================================================
 RUN pip3 install --upgrade pip
 RUN pip3 install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu121
-RUN pip3 install openmim && \
+RUN pip3 install openmim "numpy<2" && \
     mim install mmengine==0.10.7 "mmcv==2.1.0" && \
-    pip3 install mmpose==1.3.1 mmdet==3.3.0 "mmaction>=1.0.0"
+    pip3 install chumpy --no-build-isolation && \
+    pip3 install mmpose==1.3.1 mmdet==3.3.0 mmaction2==1.2.0 && \
+    mkdir -p /usr/local/lib/python3.10/dist-packages/mmaction/models/localizers/drn && \
+    echo "class DRN: pass" > /usr/local/lib/python3.10/dist-packages/mmaction/models/localizers/drn/__init__.py && \
+    echo "class DRN: pass" > /usr/local/lib/python3.10/dist-packages/mmaction/models/localizers/drn/drn.py
 
 # =============================================================
 # 6. Python 追加依存 (可視化・点群処理)
 # =============================================================
-RUN pip3 install numpy opencv-python-headless
+RUN pip3 install "numpy<2" "opencv-python-headless<4.10.0.84" "opencv-python<4.10.0.84" "opencv-contrib-python<4.10.0.84"
 
 # =============================================================
 # 7. ワークスペース設定

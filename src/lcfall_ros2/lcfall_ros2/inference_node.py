@@ -60,11 +60,11 @@ class InferenceNode(Node):
         self.declare_parameter("inference_stride", 10)
         self.declare_parameter("device", "cuda:0")
 
-        # モデルチェックポイントパス
-        self.declare_parameter("camera_config_path", "")
-        self.declare_parameter("camera_checkpoint_path", "")
-        self.declare_parameter("lidar_checkpoint_path", "")
-        self.declare_parameter("fusion_checkpoint_path", "")
+        # モデルチェックポイントパス (デフォルト値を設定)
+        self.declare_parameter("camera_config_path", "/root/ros2_ws/install/lcfall_ros2/share/lcfall_ros2/config/slowonly_r50_inference.py")
+        self.declare_parameter("camera_checkpoint_path", "/data/checkpoints/camera/best_model.pth")
+        self.declare_parameter("lidar_checkpoint_path", "/data/checkpoints/lidar/best_model.pth")
+        self.declare_parameter("fusion_checkpoint_path", "/data/checkpoints/fusion/best_model.pth")
 
         self._stride: int = (
             self.get_parameter("inference_stride").value

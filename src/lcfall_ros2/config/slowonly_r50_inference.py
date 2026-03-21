@@ -9,6 +9,8 @@
 #   model = MODELS.build(cfg.model)
 # =============================================================================
 
+default_scope = 'mmaction'
+
 model = dict(
     type='Recognizer3D',
     backbone=dict(

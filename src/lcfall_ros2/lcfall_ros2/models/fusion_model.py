@@ -22,6 +22,9 @@ from lcfall_ros2.models.lidar_model import PointNet2GRUModel as LiDARModel
 try:
     from mmaction.registry import MODELS
     from mmengine.config import Config
+    import mmaction.models  # レジストリにモデルを登録
+    from mmaction.utils import register_all_modules
+    register_all_modules(init_default_scope=True)
     HAS_MMACTION = True
 except ImportError:
     MODELS = None

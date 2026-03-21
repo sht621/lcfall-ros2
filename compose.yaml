@@ -5,6 +5,8 @@ services:
       dockerfile: Dockerfile
     image: lcfall-ros2-image
     container_name: lcfall-ros2-container
+    tty: true
+    stdin_open: true
     
     network_mode: host
     ipc: host
@@ -17,6 +19,7 @@ services:
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - .:/root/ros2_ws/src/LCFall
+      - ./data:/data
 
     deploy:
       resources:
@@ -24,4 +27,4 @@ services:
           devices:
             - driver: nvidia
               count: all
-              capabilities: [gpu, utility]
+              capabilities: [gpu, utility, compute]

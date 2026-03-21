@@ -208,6 +208,7 @@ class SyncPreprocessNode(Node):
         self, img_msg: Image, cloud_msg: PointCloud2
     ) -> None:
         """同期コールバック: 画像と点群を並列処理して publish."""
+        self.get_logger().info("Synchronized frame received. Processing...")
         skeleton_result: Optional[NDArray[np.float32]] = None
         pointcloud_result: Optional[NDArray[np.float32]] = None
 
@@ -237,6 +238,7 @@ class SyncPreprocessNode(Node):
         msg.skeleton_2d = skeleton_result.tolist()
         msg.pointcloud_frame = pointcloud_result.tolist()
         self._pub.publish(msg)
+        self.get_logger().info("Published preprocessed frame to /preprocessed/frame")
 
     # ==================================================================
     # カメラ前処理
