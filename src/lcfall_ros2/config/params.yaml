@@ -3,22 +3,15 @@
 # ==============================================================
 
 # --------------------------------------------------------------
-# sync_preprocess_node
+# 全ノード共通設定 (/**)
+# ここで設定した値は sync_preprocess_node と capture_background_node
+# 等のすべてに統一的に適用され、パラメータのズレを完全に防止します。
 # --------------------------------------------------------------
-sync_preprocess_node:
+/**:
   ros__parameters:
-    # カメラ
+    # センサートピック
     camera_topic: "/camera/image_raw"
-    image_width: 1280
-    image_height: 720
-    skeleton_device: "cuda:0"
-
-    # LiDAR
     lidar_topic: "/livox/lidar"
-
-    # 同期
-    sync_queue_size: 10
-    sync_slop: 0.05
 
     # ROI [m] - 実機環境に合わせて調整
     roi_x_min: 0.0
@@ -28,14 +21,34 @@ sync_preprocess_node:
     roi_z_min: 0.1
     roi_z_max: 2.0
 
-    # 背景モデル
-    background_model_path: "/data/background/background_voxel_map.npz"
-
     # 座標変換 (LiDAR センサ座標 → 部屋座標)
     apply_coordinate_transform: true
     lidar_roll: 1.1     # X軸回転 [deg]
     lidar_pitch: 27.8   # Y軸回転 [deg] (カメラマウント角度由来)
     lidar_yaw: 0.0      # Z軸回転 [deg]
+
+    # 背景モデル取得パラメータ (capture_background_node 用)
+    # 20秒間(200フレーム)スキャン, 5cmボクセル, 最低5ヒットで背景認定
+    capture_frames: 200
+    voxel_size: 0.05
+    min_hits: 5
+
+    # 背景モデルファイルパス
+    background_model_path: "/data/background/background_voxel_map.npz"
+
+# --------------------------------------------------------------
+# sync_preprocess_node 専用設定
+# --------------------------------------------------------------
+sync_preprocess_node:
+  ros__parameters:
+    # カメラ設定
+    image_width: 1280
+    image_height: 720
+    skeleton_device: "cuda:0"
+
+    # 同期
+    sync_queue_size: 10
+    sync_slop: 0.05
 
 # --------------------------------------------------------------
 # inference_node

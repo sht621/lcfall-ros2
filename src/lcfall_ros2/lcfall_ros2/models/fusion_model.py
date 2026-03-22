@@ -155,7 +155,7 @@ class CameraLiDARFusionModel(nn.Module):
 
         # チェックポイントをロード
         checkpoint = torch.load(
-            checkpoint_path, map_location=self._device_str
+            checkpoint_path, map_location=self._device_str, weights_only=False
         )
         if "state_dict" in checkpoint:
             state_dict = checkpoint["state_dict"]
@@ -178,7 +178,7 @@ class CameraLiDARFusionModel(nn.Module):
         )
 
         checkpoint = torch.load(
-            checkpoint_path, map_location=self._device_str
+            checkpoint_path, map_location=self._device_str, weights_only=False
         )
         if "model_state_dict" in checkpoint:
             state_dict = checkpoint["model_state_dict"]
@@ -200,7 +200,7 @@ class CameraLiDARFusionModel(nn.Module):
     def _load_fusion_head(self, checkpoint_path: str) -> None:
         """Fusion Head の重みをロード."""
         checkpoint = torch.load(
-            checkpoint_path, map_location=self._device_str
+            checkpoint_path, map_location=self._device_str, weights_only=False
         )
         if "model_state_dict" in checkpoint:
             state_dict = checkpoint["model_state_dict"]

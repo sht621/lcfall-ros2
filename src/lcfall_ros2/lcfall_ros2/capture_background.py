@@ -53,9 +53,9 @@ class CaptureBackgroundNode(Node):
             "output_path",
             "/data/background/background_voxel_map.npz",
         )
-        self.declare_parameter("capture_frames", 30)
-        self.declare_parameter("voxel_size", 0.10)
-        self.declare_parameter("min_hits", 10)
+        self.declare_parameter("capture_frames", 200)
+        self.declare_parameter("voxel_size", 0.05)
+        self.declare_parameter("min_hits", 5)
 
         # ROI
         self.declare_parameter("roi_x_min", 0.0)
@@ -64,6 +64,12 @@ class CaptureBackgroundNode(Node):
         self.declare_parameter("roi_y_max", 2.0)
         self.declare_parameter("roi_z_min", 0.1)
         self.declare_parameter("roi_z_max", 2.0)
+
+        # 座標変換 (LiDAR センサ座標 → 部屋座標)
+        self.declare_parameter("apply_coordinate_transform", True)
+        self.declare_parameter("lidar_roll", 1.1)    # X軸回転 [deg]
+        self.declare_parameter("lidar_pitch", 27.8)   # Y軸回転 [deg]
+        self.declare_parameter("lidar_yaw", 0.0)      # Z軸回転 [deg]
 
         # パラメータ取得
         lidar_topic: str = self.get_parameter("lidar_topic").value
@@ -83,6 +89,15 @@ class CaptureBackgroundNode(Node):
             self.get_parameter("roi_y_max").value,
             self.get_parameter("roi_z_max").value,
         ], dtype=np.float32)
+
+        self._apply_transform: bool = self.get_parameter("apply_coordinate_transform").value
+        self._rotation_matrix = None
+        if self._apply_transform:
+            from lcfall_ros2.utils.lidar_preprocessing import create_rotation_matrix
+            lidar_roll = self.get_parameter("lidar_roll").value
+            lidar_pitch = self.get_parameter("lidar_pitch").value
+            lidar_yaw = self.get_parameter("lidar_yaw").value
+            self._rotation_matrix = create_rotation_matrix(lidar_roll, lidar_pitch, lidar_yaw)
 
         # ==============================================================
         # 状態変数
@@ -114,7 +129,7 @@ class CaptureBackgroundNode(Node):
             f"  ROI max   : {self._roi_max}\n"
             f"  Output    : {self._output_path}\n"
             f"\n"
-            f"  ⚠ 部屋に人がいない状態で実行してください。"
+            f"部屋に人がいない状態で実行してください"
         )
 
     # ==================================================================
@@ -137,6 +152,13 @@ class CaptureBackgroundNode(Node):
         if points.shape[0] == 0:
             self.get_logger().warn("Empty pointcloud received, skipping.")
             return
+
+        # 座標変換: センサ座標 → 部屋座標 (前処理ノードと完全に一致させる)
+        if self._apply_transform:
+            from lcfall_ros2.utils.lidar_preprocessing import apply_lidar_rotation
+            points = apply_lidar_rotation(
+                points, rotation_matrix=self._rotation_matrix
+            )
 
         # ROI フィルタ
         mask = (
@@ -218,7 +240,7 @@ class CaptureBackgroundNode(Node):
 
         self.get_logger().info(
             f"\n"
-            f"✅ Background model saved!\n"
+            f"Background model saved!\n"
             f"  Output        : {output_path}\n"
             f"  Total voxels  : {len(self._voxel_counts)}\n"
             f"  Background    : {len(bg_voxels)} voxels "

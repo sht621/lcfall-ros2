@@ -1,7 +1,7 @@
-# LCFall ROS2 — Camera + LiDAR Late Fusion 転倒検知システム
+# LCFall ROS2 — Camera + LiDAR 転倒検知システム
 
 ROS2 Humble 上で動作するリアルタイム転倒検知パイプライン。
-カメラ（RealSense）と LiDAR（Livox MID-360）の Late Fusion により、高精度な転倒判定を行う。
+カメラ（RealSense）と LiDAR（Livox MID-360）の Feature-Level-Fusion により、高精度な転倒判定を行う。
 
 ---
 
@@ -93,7 +93,7 @@ float32 confidence   # [0.0, 1.0]
 
 - **OS**: Ubuntu 22.04
 - **ROS2**: Humble
-- **GPU**: NVIDIA CUDA 12.1 対応 GPU
+- **GPU**: NVIDIA CUDA 12.8 対応 GPU
 - **カメラ**: Intel RealSense シリーズ
 - **LiDAR**: Livox MID-360
 
@@ -166,12 +166,6 @@ ros2 launch lcfall_ros2 lcfall.launch.py
 
 ```bash
 ros2 launch lcfall_ros2 lcfall.launch.py enable_visualization:=false
-```
-
-### パラメータのカスタマイズ
-
-```bash
-ros2 launch lcfall_ros2 lcfall.launch.py params_file:=/path/to/custom_params.yaml
 ```
 
 ## 事前準備: 背景モデルの取得

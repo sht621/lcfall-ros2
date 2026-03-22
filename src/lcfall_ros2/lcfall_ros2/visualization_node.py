@@ -288,12 +288,10 @@ class VisualizationNode(Node):
             # 全ゼロ点を除外
             non_zero_mask = np.any(points != 0.0, axis=1)
             points = points[non_zero_mask]
-        elif self._latest_points is not None:
-            points = self._latest_points
 
         if points is None or points.shape[0] == 0:
             cv2.putText(
-                panel, "No LiDAR", (VIS_WIDTH // 4, VIS_HEIGHT // 2),
+                panel, "No Preprocessed PC", (VIS_WIDTH // 4, VIS_HEIGHT // 2),
                 cv2.FONT_HERSHEY_SIMPLEX, 1.0, COLOR_WHITE, 2,
             )
             return panel
