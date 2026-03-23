@@ -60,9 +60,16 @@ COLOR_GREEN = (0, 255, 0)
 COLOR_RED = (0, 0, 255)
 COLOR_WHITE = (255, 255, 255)
 COLOR_BLACK = (0, 0, 0)
+COLOR_GRID = (70, 70, 70)
+COLOR_AXIS = (180, 180, 180)
+COLOR_BG = (18, 18, 18)
+COLOR_BONE = (80, 220, 255)
+COLOR_JOINT = (20, 255, 120)
+COLOR_TEXT_MUTED = (170, 170, 170)
 
 # skeleton 描画しきい値
 SKELETON_SCORE_THRESHOLD = 0.3
+GRID_STEP_METERS = 0.5
 
 
 class VisualizationNode(Node):
@@ -85,12 +92,28 @@ class VisualizationNode(Node):
         self.declare_parameter("image_width", 1280)
         self.declare_parameter("image_height", 720)
         self.declare_parameter("window_name", "LCFall ROS2 Demo")
+        self.declare_parameter("roi_x_min", 0.0)
+        self.declare_parameter("roi_x_max", 4.0)
+        self.declare_parameter("roi_y_min", -2.0)
+        self.declare_parameter("roi_y_max", 2.0)
+        self.declare_parameter("roi_z_min", -1.2)
+        self.declare_parameter("roi_z_max", 1.0)
 
         camera_topic: str = self.get_parameter("camera_topic").value
         lidar_topic: str = self.get_parameter("lidar_topic").value
         self._image_width: int = self.get_parameter("image_width").value
         self._image_height: int = self.get_parameter("image_height").value
         self._window_name: str = self.get_parameter("window_name").value
+        self._roi_min = np.array([
+            self.get_parameter("roi_x_min").value,
+            self.get_parameter("roi_y_min").value,
+            self.get_parameter("roi_z_min").value,
+        ], dtype=np.float32)
+        self._roi_max = np.array([
+            self.get_parameter("roi_x_max").value,
+            self.get_parameter("roi_y_max").value,
+            self.get_parameter("roi_z_max").value,
+        ], dtype=np.float32)
 
         # ==============================================================
         # 状態変数
@@ -212,8 +235,8 @@ class VisualizationNode(Node):
                 self._latest_image, (VIS_WIDTH, VIS_HEIGHT)
             )
         else:
-            panel = np.zeros(
-                (VIS_HEIGHT, VIS_WIDTH, 3), dtype=np.uint8
+            panel = np.full(
+                (VIS_HEIGHT, VIS_WIDTH, 3), COLOR_BG, dtype=np.uint8
             )
             cv2.putText(
                 panel, "No Camera", (VIS_WIDTH // 4, VIS_HEIGHT // 2),
@@ -223,6 +246,17 @@ class VisualizationNode(Node):
         # skeleton overlay
         if self._latest_skeleton is not None:
             self._draw_skeleton_overlay(panel, self._latest_skeleton)
+            if not np.any(self._latest_skeleton[2::3] > SKELETON_SCORE_THRESHOLD):
+                cv2.putText(
+                    panel,
+                    "No skeleton detected",
+                    (18, 32),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    COLOR_TEXT_MUTED,
+                    2,
+                    cv2.LINE_AA,
+                )
 
         return panel
 
@@ -248,14 +282,15 @@ class VisualizationNode(Node):
             y_norm = skeleton[k * KEYPOINT_DIMS + 1]
             score = skeleton[k * KEYPOINT_DIMS + 2]
 
-            px = int(x_norm * panel_w)
-            py = int(y_norm * panel_h)
+            px = int(np.clip(x_norm, 0.0, 1.0) * (panel_w - 1))
+            py = int(np.clip(y_norm, 0.0, 1.0) * (panel_h - 1))
             keypoints.append((px, py, score))
 
         # キーポイント描画
         for px, py, score in keypoints:
             if score > SKELETON_SCORE_THRESHOLD:
-                cv2.circle(panel, (px, py), 4, COLOR_GREEN, -1)
+                cv2.circle(panel, (px, py), 6, COLOR_JOINT, -1, cv2.LINE_AA)
+                cv2.circle(panel, (px, py), 10, COLOR_JOINT, 1, cv2.LINE_AA)
 
         # ボーン (接続線) 描画
         for i, j in SKELETON_CONNECTIONS:
@@ -263,58 +298,181 @@ class VisualizationNode(Node):
                     keypoints[j][2] > SKELETON_SCORE_THRESHOLD):
                 pt1 = (keypoints[i][0], keypoints[i][1])
                 pt2 = (keypoints[j][0], keypoints[j][1])
-                cv2.line(panel, pt1, pt2, COLOR_GREEN, 2)
+                cv2.line(panel, pt1, pt2, COLOR_BONE, 3, cv2.LINE_AA)
 
     def _draw_pointcloud_panel(self) -> NDArray[np.uint8]:
-        """右画面: 前景点群の正面投影 (XZ 平面).
+        """右画面: 斜視の単一ビュー点群表示."""
+        panel = np.full((VIS_HEIGHT, VIS_WIDTH, 3), COLOR_BG, dtype=np.uint8)
+        points = self._get_display_points()
+        rect = (18, 18, VIS_WIDTH - 36, VIS_HEIGHT - 36)
+        self._draw_oblique_view(panel, rect, points)
+        return panel
 
-        /preprocessed/frame の前景点群を優先的に使用する。
-        未受信の場合は /livox/lidar の生点群を表示する。
-        """
-        panel = np.zeros(
-            (VIS_HEIGHT, VIS_WIDTH, 3), dtype=np.uint8
+    def _get_display_points(self) -> NDArray[np.float32]:
+        """表示用の前景点群を取得."""
+        if self._latest_preprocessed_pc is None:
+            return np.empty((0, 3), dtype=np.float32)
+
+        points = self._latest_preprocessed_pc.reshape(NUM_POINTS, 3)
+        non_zero_mask = np.any(points != 0.0, axis=1)
+        return points[non_zero_mask]
+
+    def _draw_oblique_view(
+        self,
+        panel: NDArray[np.uint8],
+        rect: tuple[int, int, int, int],
+        points: NDArray[np.float32],
+    ) -> None:
+        """床グリッド付きの斜視点群ビューを描画."""
+        x0, y0, width, height = rect
+        view = panel[y0:y0 + height, x0:x0 + width]
+        view[:] = (28, 28, 28)
+        cv2.rectangle(panel, (x0, y0), (x0 + width, y0 + height), COLOR_AXIS, 1)
+        self._draw_floor_grid(view)
+        self._draw_oblique_axes(view)
+
+        if points.shape[0] == 0:
+            cv2.putText(
+                view,
+                "No foreground points",
+                (18, height // 2),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                COLOR_TEXT_MUTED,
+                2,
+                cv2.LINE_AA,
+            )
+            return
+
+        order = np.argsort(points[:, 1] - points[:, 2] * 0.2)
+        for idx in order:
+            px, py = self._project_point(points[idx], width, height)
+            if 0 <= px < width and 0 <= py < height:
+                color = self._height_to_color(points[idx, 2])
+                cv2.circle(view, (px, py), 3, color, -1, cv2.LINE_AA)
+
+    def _draw_floor_grid(self, view: NDArray[np.uint8]) -> None:
+        """斜視図用の床グリッドを描画."""
+        height, width = view.shape[:2]
+        x_values = np.arange(
+            float(self._roi_min[0]), float(self._roi_max[0]) + 1e-6, GRID_STEP_METERS
+        )
+        y_values = np.arange(
+            float(self._roi_min[1]), float(self._roi_max[1]) + 1e-6, GRID_STEP_METERS
         )
 
-        # 前処理済み前景点群を優先使用
-        points = None
-        if (self._latest_preprocessed_pc is not None and
-                not np.allclose(self._latest_preprocessed_pc, 0.0)):
-            # (768,) → (256, 3)
-            points = self._latest_preprocessed_pc.reshape(NUM_POINTS, 3)
-            # 全ゼロ点を除外
-            non_zero_mask = np.any(points != 0.0, axis=1)
-            points = points[non_zero_mask]
-
-        if points is None or points.shape[0] == 0:
+        for x in x_values:
+            p0 = self._project_xyz(x, float(self._roi_min[1]), float(self._roi_min[2]), width, height)
+            p1 = self._project_xyz(x, float(self._roi_max[1]), float(self._roi_min[2]), width, height)
+            cv2.line(view, p0, p1, COLOR_GRID, 1, cv2.LINE_AA)
             cv2.putText(
-                panel, "No Preprocessed PC", (VIS_WIDTH // 4, VIS_HEIGHT // 2),
-                cv2.FONT_HERSHEY_SIMPLEX, 1.0, COLOR_WHITE, 2,
+                view, f"{x:.1f}", (p1[0] + 2, p1[1]),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.35, COLOR_TEXT_MUTED, 1, cv2.LINE_AA,
             )
-            return panel
 
-        # 正面投影: X → 画面横, Z → 画面縦 (上下反転)
-        x = points[:, 0]
-        z = points[:, 2]
+        for y in y_values:
+            p0 = self._project_xyz(float(self._roi_min[0]), y, float(self._roi_min[2]), width, height)
+            p1 = self._project_xyz(float(self._roi_max[0]), y, float(self._roi_min[2]), width, height)
+            cv2.line(view, p0, p1, COLOR_GRID, 1, cv2.LINE_AA)
+            cv2.putText(
+                view, f"{y:.1f}", (p0[0] - 22, p0[1]),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.35, COLOR_TEXT_MUTED, 1, cv2.LINE_AA,
+            )
 
-        # 自動スケーリング
-        x_min, x_max = x.min(), x.max()
-        z_min, z_max = z.min(), z.max()
+    def _draw_oblique_axes(self, view: NDArray[np.uint8]) -> None:
+        """斜視図の基準軸を描画."""
+        height, width = view.shape[:2]
+        origin = self._project_xyz(
+            float(self._roi_min[0]),
+            0.0,
+            float(self._roi_min[2]),
+            width,
+            height,
+        )
+        x_axis = self._project_xyz(
+            float(self._roi_max[0]),
+            0.0,
+            float(self._roi_min[2]),
+            width,
+            height,
+        )
+        y_axis = self._project_xyz(
+            float(self._roi_min[0]),
+            float(self._roi_max[1]),
+            float(self._roi_min[2]),
+            width,
+            height,
+        )
 
-        x_range = max(x_max - x_min, 0.1)
-        z_range = max(z_max - z_min, 0.1)
+        cv2.line(view, origin, x_axis, COLOR_AXIS, 1, cv2.LINE_AA)
+        cv2.line(view, origin, y_axis, COLOR_AXIS, 1, cv2.LINE_AA)
 
-        margin = 20
-        w = VIS_WIDTH - 2 * margin
-        h = VIS_HEIGHT - 2 * margin
+    @staticmethod
+    def _height_to_color(value: float) -> tuple[int, int, int]:
+        """高さに応じた点群色を返す."""
+        t = float(np.clip((value + 1.2) / 2.4, 0.0, 1.0))
+        blue = int(255 * (1.0 - t))
+        green = int(180 + 60 * t)
+        red = int(255 * t)
+        return (blue, green, red)
 
-        px = ((x - x_min) / x_range * w + margin).astype(np.int32)
-        pz = (h - (z - z_min) / z_range * h + margin).astype(np.int32)
+    def _project_point(
+        self,
+        point: NDArray[np.float32],
+        width: int,
+        height: int,
+    ) -> tuple[int, int]:
+        """点群1点を斜視図へ投影."""
+        return self._project_xyz(
+            float(point[0]), float(point[1]), float(point[2]), width, height
+        )
 
-        # 点を描画 (緑)
-        for i in range(min(len(px), 5000)):
-            cv2.circle(panel, (int(px[i]), int(pz[i])), 2, COLOR_GREEN, -1)
+    def _project_xyz(
+        self,
+        x: float,
+        y: float,
+        z: float,
+        width: int,
+        height: int,
+    ) -> tuple[int, int]:
+        """XYZ を斜視図ピクセル座標へ変換."""
+        x_min, x_max = float(self._roi_min[0]), float(self._roi_max[0])
+        y_min, y_max = float(self._roi_min[1]), float(self._roi_max[1])
+        z_min, z_max = float(self._roi_min[2]), float(self._roi_max[2])
 
-        return panel
+        x_centered = x - (x_min + x_max) * 0.5
+        y_centered = y - (y_min + y_max) * 0.5
+        z_offset = z - z_min
+
+        x_span = max(x_max - x_min, 1e-6)
+        y_span = max(y_max - y_min, 1e-6)
+        z_span = max(z_max - z_min, 1e-6)
+
+        theta = np.deg2rad(45.0)
+        cos_t = float(np.cos(theta))
+        sin_t = float(np.sin(theta))
+
+        # 45度の斜視投影:
+        # X は右奥、Y は左奥へ同じ角度で効かせる。
+        sx = (x_centered / x_span) * cos_t
+        sy = (y_centered / y_span) * sin_t
+        sz = z_offset / z_span
+
+        px = int(
+            np.clip(
+                width * (0.50 + 0.78 * (sx - sy)),
+                0.0,
+                width - 1.0,
+            )
+        )
+        py = int(
+            np.clip(
+                height * (0.82 - 0.32 * (sx + sy) - 0.58 * sz),
+                0.0,
+                height - 1.0,
+            )
+        )
+        return px, py
 
     def _draw_status_overlay(self, canvas: NDArray[np.uint8]) -> None:
         """転倒/待機状態のオーバーレイ表示."""
@@ -322,6 +480,23 @@ class VisualizationNode(Node):
 
         if self._latest_result is not None:
             if self._latest_result.prediction == 1:
+                # 転倒時は画面全体を赤枠で囲って視認性を上げる。
+                cv2.rectangle(
+                    canvas,
+                    (4, 4),
+                    (canvas.shape[1] - 5, canvas.shape[0] - 5),
+                    COLOR_RED,
+                    6,
+                    cv2.LINE_AA,
+                )
+                cv2.rectangle(
+                    canvas,
+                    (14, 14),
+                    (canvas.shape[1] - 15, canvas.shape[0] - 15),
+                    COLOR_RED,
+                    2,
+                    cv2.LINE_AA,
+                )
                 # FALLING 表示 (赤)
                 text = "FALLING"
                 font_scale = 2.0

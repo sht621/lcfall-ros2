@@ -38,6 +38,8 @@ class SkeletonExtractor:
     def _initialize_model(self) -> None:
         """MMPoseInferencer を初期化."""
         try:
+            # ViTPose-S の backbone registry を有効化する。
+            import mmpretrain  # noqa: F401
             from mmpose.apis import MMPoseInferencer
 
             self._inferencer = MMPoseInferencer(
@@ -121,8 +123,21 @@ class SkeletonExtractor:
         best = None
         best_area = -1.0
         for person in persons:
-            bbox = person.get("bbox", [[0, 0, 0, 0]])[0]
-            area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+            bbox = person.get("bbox")
+            if bbox:
+                bbox_array = np.asarray(bbox, dtype=np.float32).reshape(-1)
+                if bbox_array.shape[0] >= 4:
+                    area = float(
+                        max(bbox_array[2] - bbox_array[0], 0.0) *
+                        max(bbox_array[3] - bbox_array[1], 0.0)
+                    )
+                else:
+                    area = -1.0
+            else:
+                scores = np.asarray(
+                    person.get("keypoint_scores", []), dtype=np.float32
+                )
+                area = float(scores.mean()) if scores.size > 0 else -1.0
             if area > best_area:
                 best_area = area
                 best = person
@@ -147,7 +162,8 @@ class SkeletonExtractor:
             (51,) = (x_norm, y_norm, score) × 17。
         """
         result = np.zeros(SKELETON_LENGTH, dtype=np.float32)
-        for i in range(NUM_KEYPOINTS):
+        num_points = min(NUM_KEYPOINTS, keypoints.shape[0], scores.shape[0])
+        for i in range(num_points):
             result[i * KEYPOINT_DIMS + 0] = keypoints[i, 0] / width
             result[i * KEYPOINT_DIMS + 1] = keypoints[i, 1] / height
             result[i * KEYPOINT_DIMS + 2] = scores[i]

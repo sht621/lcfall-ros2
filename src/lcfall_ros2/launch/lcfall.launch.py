@@ -18,9 +18,17 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 import os
 from ament_index_python.packages import get_package_share_directory
+from lcfall_ros2.device_recovery import repair_realsense_video_nodes
 
 
 def generate_launch_description():
+    repaired_nodes = repair_realsense_video_nodes()
+    if repaired_nodes:
+        print(
+            "[lcfall.launch] Repaired missing RealSense device nodes: "
+            + ", ".join(repaired_nodes)
+        )
+
     # パッケージ共有ディレクトリ
     pkg_share = get_package_share_directory("lcfall_ros2")
     default_params_file = os.path.join(pkg_share, "config", "params.yaml")
