@@ -142,9 +142,15 @@ class CaptureBackgroundNode(Node):
             return
 
         try:
-            points = pc2.read_points_numpy(
+            raw_points = pc2.read_points(
                 msg, field_names=("x", "y", "z"), skip_nans=True
-            ).astype(np.float32)
+            )
+            if isinstance(raw_points, np.ndarray) and raw_points.dtype.names:
+                points = np.column_stack(
+                    [raw_points["x"], raw_points["y"], raw_points["z"]]
+                ).astype(np.float32, copy=False)
+            else:
+                points = np.asarray(list(raw_points), dtype=np.float32)
         except Exception as e:
             self.get_logger().error(f"PointCloud2 read error: {e}")
             return

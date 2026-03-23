@@ -24,6 +24,10 @@ def generate_launch_description():
     # パッケージ共有ディレクトリ
     pkg_share = get_package_share_directory("lcfall_ros2")
     default_params_file = os.path.join(pkg_share, "config", "params.yaml")
+    livox_pkg_share = get_package_share_directory("livox_ros_driver2")
+    default_livox_config_path = os.path.join(
+        livox_pkg_share, "config", "MID360_config.json"
+    )
 
     # ------------------------------------------------------------------
     # Launch 引数
@@ -40,8 +44,15 @@ def generate_launch_description():
         description="Enable visualization node (default: true)",
     )
 
+    livox_config_arg = DeclareLaunchArgument(
+        "livox_config_path",
+        default_value=default_livox_config_path,
+        description="Path to the Livox MID-360 JSON config",
+    )
+
     params_file = LaunchConfiguration("params_file")
     enable_vis = LaunchConfiguration("enable_visualization")
+    livox_config_path = LaunchConfiguration("livox_config_path")
 
     # ------------------------------------------------------------------
     # センサドライバ: カメラ (RealSense)
@@ -61,7 +72,7 @@ def generate_launch_description():
             "enable_infra2": False,
         }],
         remappings=[
-            ("color/image_raw", "/camera/image_raw"),
+            ("camera/color/image_raw", "/camera/image_raw"),
         ],
         output="screen",
     )
@@ -80,6 +91,7 @@ def generate_launch_description():
             "data_src": 0,
             "publish_freq": 10.0,
             "output_data_type": 0,
+            "user_config_path": livox_config_path,
         }],
     )
 
@@ -124,6 +136,7 @@ def generate_launch_description():
     return LaunchDescription([
         params_file_arg,
         enable_vis_arg,
+        livox_config_arg,
         # センサドライバ
         camera_node,
         livox_node,

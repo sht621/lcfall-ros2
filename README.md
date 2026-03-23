@@ -177,7 +177,7 @@ ros2 launch lcfall_ros2 lcfall.launch.py enable_visualization:=false
 ros2 launch lcfall_ros2 capture_background.launch.py
 ```
 
-LiDAR ドライバも自動で起動し、30 フレーム蓄積後に npz 保存 → 全ノード自動終了する。
+LiDAR ドライバも自動で起動し、200 フレーム蓄積後に npz 保存 → 全ノード自動終了する。
 
 ### パラメータのカスタマイズ
 
@@ -192,9 +192,9 @@ ros2 launch lcfall_ros2 capture_background.launch.py \
 | パラメータ | デフォルト | 説明 |
 |---|---|---|
 | `output_path` | `/data/background/background_voxel_map.npz` | 保存先 |
-| `capture_frames` | 30 | 蓄積フレーム数 |
-| `voxel_size` | 0.10 | ボクセル 1 辺 [m] |
-| `min_hits` | 10 | 背景とみなす最小出現回数 |
+| `capture_frames` | 200 | 蓄積フレーム数 |
+| `voxel_size` | 0.05 | ボクセル 1 辺 [m] |
+| `min_hits` | 5 | 背景とみなす最小出現回数 |
 | `roi_*` | 各種 | ROI 範囲 [m]（本体と揃えること） |
 
 ### npz 保存内容

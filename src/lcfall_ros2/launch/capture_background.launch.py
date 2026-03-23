@@ -20,21 +20,32 @@ from launch.actions import (
 from launch.event_handlers import OnProcessExit
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+import os
+from ament_index_python.packages import get_package_share_directory
 
 
 def generate_launch_description():
+    livox_pkg_share = get_package_share_directory("livox_ros_driver2")
+    default_livox_config_path = os.path.join(
+        livox_pkg_share, "config", "MID360_config.json"
+    )
+
     # ------------------------------------------------------------------
     # Launch 引数
     # ------------------------------------------------------------------
     args = [
         DeclareLaunchArgument("lidar_topic", default_value="/livox/lidar"),
         DeclareLaunchArgument(
+            "livox_config_path",
+            default_value=default_livox_config_path,
+        ),
+        DeclareLaunchArgument(
             "output_path",
             default_value="/data/background/background_voxel_map.npz",
         ),
-        DeclareLaunchArgument("capture_frames", default_value="30"),
-        DeclareLaunchArgument("voxel_size", default_value="0.10"),
-        DeclareLaunchArgument("min_hits", default_value="10"),
+        DeclareLaunchArgument("capture_frames", default_value="200"),
+        DeclareLaunchArgument("voxel_size", default_value="0.05"),
+        DeclareLaunchArgument("min_hits", default_value="5"),
         DeclareLaunchArgument("roi_x_min", default_value="0.0"),
         DeclareLaunchArgument("roi_x_max", default_value="5.0"),
         DeclareLaunchArgument("roi_y_min", default_value="-2.0"),
@@ -57,6 +68,7 @@ def generate_launch_description():
             "data_src": 0,
             "publish_freq": 10.0,
             "output_data_type": 0,
+            "user_config_path": LaunchConfiguration("livox_config_path"),
         }],
     )
 

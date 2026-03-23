@@ -35,10 +35,16 @@ def pointcloud2_to_numpy(
     Returns:
         (N, 3) float32 配列。NaN を含む点は除外済み。
     """
-    points = pc2.read_points_numpy(
+    raw_points = pc2.read_points(
         cloud_msg, field_names=("x", "y", "z"), skip_nans=True
     )
-    return points.astype(np.float32)
+
+    if isinstance(raw_points, np.ndarray) and raw_points.dtype.names:
+        return np.column_stack(
+            [raw_points["x"], raw_points["y"], raw_points["z"]]
+        ).astype(np.float32, copy=False)
+
+    return np.asarray(list(raw_points), dtype=np.float32)
 
 
 def apply_roi(

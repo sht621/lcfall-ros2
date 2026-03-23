@@ -23,6 +23,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import Image, PointCloud2
 
 from lcfall_msgs.msg import FallDetectionResult, PreprocessedFrame
+from lcfall_ros2.utils.lidar_preprocessing import pointcloud2_to_numpy
 
 try:
     import cv2
@@ -162,12 +163,7 @@ class VisualizationNode(Node):
     def _lidar_callback(self, msg: PointCloud2) -> None:
         """LiDAR 生点群を更新 (正面投影用)."""
         try:
-            from sensor_msgs_py import point_cloud2 as pc2
-
-            points = pc2.read_points_numpy(
-                msg, field_names=("x", "y", "z"), skip_nans=True
-            )
-            self._latest_points = points.astype(np.float32)
+            self._latest_points = pointcloud2_to_numpy(msg)
         except Exception as e:
             self.get_logger().error(
                 f"PointCloud2 read error: {e}",
