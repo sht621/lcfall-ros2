@@ -16,9 +16,69 @@ from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+import json
+import fcntl
 import os
+import socket
+import struct
 from ament_index_python.packages import get_package_share_directory
 from lcfall_ros2.device_recovery import repair_realsense_video_nodes
+
+
+def _get_local_ipv4_addresses() -> dict[str, str]:
+    """Return IPv4 addresses keyed by interface name."""
+    ipv4_by_ifname: dict[str, str] = {}
+    for ifname in sorted(os.listdir("/sys/class/net")):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            packed = struct.pack("256s", ifname[:15].encode())
+            ip_addr = socket.inet_ntoa(
+                fcntl.ioctl(sock.fileno(), 0x8915, packed)[20:24]
+            )
+        except OSError:
+            continue
+        finally:
+            sock.close()
+        ipv4_by_ifname[ifname] = ip_addr
+    return ipv4_by_ifname
+
+
+def _warn_if_livox_host_ip_missing(config_path: str) -> None:
+    """Print a clear diagnostic before Livox starts if host IP is unavailable."""
+    try:
+        with open(config_path, "r", encoding="utf-8") as fp:
+            config = json.load(fp)
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"[lcfall.launch] Failed to read Livox config '{config_path}': {exc}")
+        return
+
+    host_net_info = config.get("MID360", {}).get("host_net_info", {})
+    expected_host_ips = sorted({
+        value
+        for key, value in host_net_info.items()
+        if key.endswith("_ip") and value
+    })
+    local_ipv4 = _get_local_ipv4_addresses()
+    local_ip_values = set(local_ipv4.values())
+    missing_host_ips = [ip for ip in expected_host_ips if ip not in local_ip_values]
+
+    if not expected_host_ips:
+        print(
+            "[lcfall.launch] Livox host IP is not set in the JSON config. "
+            "The driver may fail to bind UDP sockets."
+        )
+        return
+
+    if missing_host_ips:
+        local_summary = ", ".join(
+            f"{ifname}={ip_addr}" for ifname, ip_addr in local_ipv4.items()
+        ) or "none"
+        missing_summary = ", ".join(missing_host_ips)
+        print(
+            "[lcfall.launch] WARNING: Livox host IP is not configured on this machine. "
+            f"Expected: {missing_summary}. Local IPv4: {local_summary}. "
+            "Livox may fail with 'bind failed'."
+        )
 
 
 def generate_launch_description():
@@ -36,6 +96,7 @@ def generate_launch_description():
     default_livox_config_path = os.path.join(
         livox_pkg_share, "config", "MID360_config.json"
     )
+    _warn_if_livox_host_ip_missing(default_livox_config_path)
 
     # ------------------------------------------------------------------
     # Launch 引数
