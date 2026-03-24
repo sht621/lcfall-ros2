@@ -104,9 +104,9 @@ def create_rotation_matrix(
     pitch_deg: float,
     yaw_deg: float,
 ) -> NDArray[np.float32]:
-    """3 軸回転行列を生成 (Rz · Ry · Rx 順).
+    """3 軸回転行列を生成 (Rx · Ry · Rz 順).
 
-    LCFall オフライン実装 (step2_filtering.py) と同じ回転行列を構成する。
+    online-train の LiDAR 学習前処理と同じ回転行列を構成する。
     角度は度 (degree) で指定する。
 
     Args:
@@ -145,8 +145,8 @@ def create_rotation_matrix(
         [0, 0, 1],
     ], dtype=np.float32)
 
-    # 合成: Rz * Ry * Rx
-    return (Rz @ Ry @ Rx).astype(np.float32)
+    # 合成: Rx * Ry * Rz
+    return (Rx @ Ry @ Rz).astype(np.float32)
 
 
 def apply_lidar_rotation(

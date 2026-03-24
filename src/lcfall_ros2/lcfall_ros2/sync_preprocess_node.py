@@ -50,6 +50,11 @@ class SyncPreprocessNode(Node):
         self.declare_parameter("image_width", 1280)
         self.declare_parameter("image_height", 720)
         self.declare_parameter("skeleton_device", "cuda:0")
+        self.declare_parameter("person_min_bbox_score", 0.3)
+        self.declare_parameter("person_min_bbox_area_ratio", 0.02)
+        self.declare_parameter("person_min_mean_keypoint_score", 0.3)
+        self.declare_parameter("person_min_keypoint_score", 0.3)
+        self.declare_parameter("person_min_keypoints", 5)
 
         # LiDAR
         self.declare_parameter("lidar_topic", "/livox/lidar")
@@ -96,6 +101,21 @@ class SyncPreprocessNode(Node):
         skeleton_device: str = (
             self.get_parameter("skeleton_device").value
         )
+        person_min_bbox_score: float = (
+            self.get_parameter("person_min_bbox_score").value
+        )
+        person_min_bbox_area_ratio: float = (
+            self.get_parameter("person_min_bbox_area_ratio").value
+        )
+        person_min_mean_keypoint_score: float = (
+            self.get_parameter("person_min_mean_keypoint_score").value
+        )
+        person_min_keypoint_score: float = (
+            self.get_parameter("person_min_keypoint_score").value
+        )
+        person_min_keypoints: int = (
+            self.get_parameter("person_min_keypoints").value
+        )
         sync_queue_size: int = (
             self.get_parameter("sync_queue_size").value
         )
@@ -140,7 +160,14 @@ class SyncPreprocessNode(Node):
         self.get_logger().info(
             f"Initializing SkeletonExtractor on {skeleton_device} ..."
         )
-        self._skeleton_extractor = SkeletonExtractor(device=skeleton_device)
+        self._skeleton_extractor = SkeletonExtractor(
+            device=skeleton_device,
+            min_bbox_score=person_min_bbox_score,
+            min_bbox_area_ratio=person_min_bbox_area_ratio,
+            min_mean_keypoint_score=person_min_mean_keypoint_score,
+            min_keypoint_score=person_min_keypoint_score,
+            min_keypoints=person_min_keypoints,
+        )
 
         # ==============================================================
         # 背景モデル読み込み

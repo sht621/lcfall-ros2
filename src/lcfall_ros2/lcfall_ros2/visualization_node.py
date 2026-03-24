@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from typing import Optional
 
 import numpy as np
@@ -66,10 +67,15 @@ COLOR_BG = (18, 18, 18)
 COLOR_BONE = (80, 220, 255)
 COLOR_JOINT = (20, 255, 120)
 COLOR_TEXT_MUTED = (170, 170, 170)
+COLOR_GRAPH_LINE = (80, 220, 255)
+COLOR_GRAPH_FILL = (40, 110, 140)
+COLOR_GRAPH_ALERT = (0, 90, 220)
 
 # skeleton 描画しきい値
 SKELETON_SCORE_THRESHOLD = 0.3
 GRID_STEP_METERS = 0.5
+PROB_HISTORY_SIZE = 120
+BOTTOM_BAR_HEIGHT = 150
 
 
 class VisualizationNode(Node):
@@ -92,6 +98,8 @@ class VisualizationNode(Node):
         self.declare_parameter("image_width", 1280)
         self.declare_parameter("image_height", 720)
         self.declare_parameter("window_name", "LCFall ROS2 Demo")
+        self.declare_parameter("window_width", 1600)
+        self.declare_parameter("window_height", 900)
         self.declare_parameter("roi_x_min", 0.0)
         self.declare_parameter("roi_x_max", 4.0)
         self.declare_parameter("roi_y_min", -2.0)
@@ -104,6 +112,8 @@ class VisualizationNode(Node):
         self._image_width: int = self.get_parameter("image_width").value
         self._image_height: int = self.get_parameter("image_height").value
         self._window_name: str = self.get_parameter("window_name").value
+        self._window_width: int = self.get_parameter("window_width").value
+        self._window_height: int = self.get_parameter("window_height").value
         self._roi_min = np.array([
             self.get_parameter("roi_x_min").value,
             self.get_parameter("roi_y_min").value,
@@ -124,7 +134,14 @@ class VisualizationNode(Node):
         self._latest_skeleton: Optional[NDArray[np.float32]] = None
         self._latest_preprocessed_pc: Optional[NDArray[np.float32]] = None
         self._frame_count: int = 0
+        self._prob_history: deque[float] = deque(maxlen=PROB_HISTORY_SIZE)
         self._bridge = CvBridge() if HAS_CVBRIDGE else None
+        cv2.namedWindow(self._window_name, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(
+            self._window_name,
+            self._window_width,
+            self._window_height,
+        )
 
         # ==============================================================
         # ROS 通信
@@ -196,6 +213,7 @@ class VisualizationNode(Node):
     def _result_callback(self, msg: FallDetectionResult) -> None:
         """転倒検知結果を更新."""
         self._latest_result = msg
+        self._prob_history.append(float(np.clip(msg.confidence, 0.0, 1.0)))
 
     def _preprocessed_callback(self, msg: PreprocessedFrame) -> None:
         """前処理済みフレーム (skeleton + 前景点群) を更新."""
@@ -220,13 +238,44 @@ class VisualizationNode(Node):
         right = self._draw_pointcloud_panel()
 
         # 左右結合
-        canvas = np.hstack([left, right])
+        top_canvas = np.hstack([left, right])
 
         # 転倒/待機状態のオーバーレイ
-        self._draw_status_overlay(canvas)
+        self._draw_status_overlay(top_canvas)
 
-        cv2.imshow(self._window_name, canvas)
+        bottom_bar = np.full(
+            (BOTTOM_BAR_HEIGHT, top_canvas.shape[1], 3),
+            COLOR_BG,
+            dtype=np.uint8,
+        )
+        self._draw_probability_history(bottom_bar)
+
+        canvas = np.vstack([top_canvas, bottom_bar])
+
+        display = self._fit_canvas_to_window(canvas)
+        cv2.imshow(self._window_name, display)
         cv2.waitKey(1)
+
+    def _fit_canvas_to_window(
+        self,
+        canvas: NDArray[np.uint8],
+    ) -> NDArray[np.uint8]:
+        """描画キャンバス全体をウィンドウサイズへ拡大縮小."""
+        canvas_h, canvas_w = canvas.shape[:2]
+        scale = min(
+            self._window_width / max(canvas_w, 1),
+            self._window_height / max(canvas_h, 1),
+        )
+
+        if scale <= 1.0:
+            # 縮小も許可して、常にウィンドウ内に収める。
+            interp = cv2.INTER_AREA
+        else:
+            interp = cv2.INTER_LINEAR
+
+        target_w = max(1, int(round(canvas_w * scale)))
+        target_h = max(1, int(round(canvas_h * scale)))
+        return cv2.resize(canvas, (target_w, target_h), interpolation=interp)
 
     def _draw_camera_panel(self) -> NDArray[np.uint8]:
         """左画面: カメラ画像 + skeleton overlay."""
@@ -249,7 +298,7 @@ class VisualizationNode(Node):
             if not np.any(self._latest_skeleton[2::3] > SKELETON_SCORE_THRESHOLD):
                 cv2.putText(
                     panel,
-                    "No skeleton detected",
+                    "No person detected",
                     (18, 32),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.7,
@@ -513,8 +562,8 @@ class VisualizationNode(Node):
                     font_scale, COLOR_RED, thickness,
                 )
 
-            # confidence 表示
-            conf_text = f"Confidence: {self._latest_result.confidence:.3f}"
+            # confidence には fall probability を表示する
+            conf_text = f"Fall Prob: {self._latest_result.confidence:.3f}"
             cv2.putText(
                 canvas, conf_text, (10, canvas.shape[0] - 10),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_WHITE, 1,
@@ -533,6 +582,111 @@ class VisualizationNode(Node):
                 (total_width // 2 - 80, 70),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_WHITE, 1,
             )
+
+    def _draw_probability_history(self, canvas: NDArray[np.uint8]) -> None:
+        """画面下部に転倒確率の折れ線グラフを描画."""
+        graph_margin = 16
+        graph_height = canvas.shape[0] - 34
+        graph_width = canvas.shape[1] - graph_margin * 2
+        x0 = graph_margin
+        y0 = canvas.shape[0] - graph_height - 12
+
+        # 背景パネル
+        cv2.rectangle(
+            canvas,
+            (x0, y0),
+            (x0 + graph_width, y0 + graph_height),
+            (24, 24, 24),
+            -1,
+        )
+        cv2.rectangle(
+            canvas,
+            (x0, y0),
+            (x0 + graph_width, y0 + graph_height),
+            COLOR_AXIS,
+            1,
+        )
+
+        # ガイドライン
+        for frac in (0.25, 0.5, 0.75):
+            gy = y0 + int((1.0 - frac) * graph_height)
+            cv2.line(
+                canvas,
+                (x0, gy),
+                (x0 + graph_width, gy),
+                COLOR_GRID,
+                1,
+                cv2.LINE_AA,
+            )
+
+        cv2.putText(
+            canvas,
+            "Fall Probability History",
+            (x0 + 8, y0 - 8),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            COLOR_WHITE,
+            1,
+            cv2.LINE_AA,
+        )
+
+        if len(self._prob_history) < 2:
+            cv2.putText(
+                canvas,
+                "Waiting for probability history",
+                (x0 + 12, y0 + graph_height // 2),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                COLOR_TEXT_MUTED,
+                1,
+                cv2.LINE_AA,
+            )
+            return
+
+        values = np.asarray(self._prob_history, dtype=np.float32)
+        xs = np.linspace(x0 + 8, x0 + graph_width - 8, len(values))
+        ys = y0 + (1.0 - values) * (graph_height - 12) + 6
+        points = np.stack([xs, ys], axis=1).astype(np.int32)
+
+        # 塗りつぶし
+        fill_points = np.vstack([
+            points,
+            np.array([[x0 + graph_width - 8, y0 + graph_height - 6]], dtype=np.int32),
+            np.array([[x0 + 8, y0 + graph_height - 6]], dtype=np.int32),
+        ])
+        cv2.fillPoly(canvas, [fill_points], COLOR_GRAPH_FILL)
+
+        # しきい値線
+        threshold_y = y0 + int((1.0 - 0.5) * graph_height)
+        cv2.line(
+            canvas,
+            (x0, threshold_y),
+            (x0 + graph_width, threshold_y),
+            COLOR_GRAPH_ALERT,
+            1,
+            cv2.LINE_AA,
+        )
+
+        cv2.polylines(
+            canvas,
+            [points],
+            isClosed=False,
+            color=COLOR_GRAPH_LINE,
+            thickness=2,
+            lineType=cv2.LINE_AA,
+        )
+
+        latest = float(values[-1])
+        cv2.putText(
+            canvas,
+            f"{latest:.2f}",
+            (x0 + graph_width - 52, y0 + 20),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            COLOR_WHITE,
+            1,
+            cv2.LINE_AA,
+        )
 
     def destroy_node(self) -> None:
         """ノード破棄時にウィンドウを閉じる."""

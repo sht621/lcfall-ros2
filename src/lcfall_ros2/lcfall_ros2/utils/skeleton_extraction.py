@@ -25,13 +25,26 @@ class SkeletonExtractor:
     extract() で画像から 1 人分の正規化 skeleton 座標を返す。
     """
 
-    def __init__(self, device: str = "cuda:0") -> None:
+    def __init__(
+        self,
+        device: str = "cuda:0",
+        min_bbox_score: float = 0.3,
+        min_bbox_area_ratio: float = 0.02,
+        min_mean_keypoint_score: float = 0.3,
+        min_keypoint_score: float = 0.3,
+        min_keypoints: int = 5,
+    ) -> None:
         """モデル初期化.
 
         Args:
             device: 推論デバイス (例: 'cuda:0', 'cpu')。
         """
         self._device = device
+        self._min_bbox_score = float(min_bbox_score)
+        self._min_bbox_area_ratio = float(min_bbox_area_ratio)
+        self._min_mean_keypoint_score = float(min_mean_keypoint_score)
+        self._min_keypoint_score = float(min_keypoint_score)
+        self._min_keypoints = int(min_keypoints)
         self._inferencer = None
         self._initialize_model()
 
@@ -90,7 +103,9 @@ class SkeletonExtractor:
 
             # bbox 面積最大の人物を選択
             persons = predictions[0]
-            best_person = self._select_best_person(persons)
+            best_person = self._select_best_person(
+                persons, image_width, image_height
+            )
             if best_person is None:
                 return np.zeros(SKELETON_LENGTH, dtype=np.float32)
 
@@ -108,9 +123,11 @@ class SkeletonExtractor:
         except Exception:
             return np.zeros(SKELETON_LENGTH, dtype=np.float32)
 
-    @staticmethod
     def _select_best_person(
+        self,
         persons: list[dict],
+        image_width: int,
+        image_height: int,
     ) -> Optional[dict]:
         """bbox 面積最大の人物を選択.
 
@@ -122,7 +139,16 @@ class SkeletonExtractor:
         """
         best = None
         best_area = -1.0
+        image_area = max(float(image_width * image_height), 1.0)
         for person in persons:
+            bbox_score = SkeletonExtractor._extract_bbox_score(person)
+            keypoint_scores = np.asarray(
+                person.get("keypoint_scores", []), dtype=np.float32
+            )
+            valid_keypoints = keypoint_scores[
+                keypoint_scores >= self._min_keypoint_score
+            ]
+
             bbox = person.get("bbox")
             if bbox:
                 bbox_array = np.asarray(bbox, dtype=np.float32).reshape(-1)
@@ -134,14 +160,36 @@ class SkeletonExtractor:
                 else:
                     area = -1.0
             else:
-                scores = np.asarray(
-                    person.get("keypoint_scores", []), dtype=np.float32
-                )
-                area = float(scores.mean()) if scores.size > 0 else -1.0
+                area = -1.0
+
+            area_ratio = area / image_area if area > 0.0 else 0.0
+            mean_keypoint_score = (
+                float(valid_keypoints.mean())
+                if valid_keypoints.size > 0 else 0.0
+            )
+
+            if bbox_score < self._min_bbox_score:
+                continue
+            if area_ratio < self._min_bbox_area_ratio:
+                continue
+            if valid_keypoints.size < self._min_keypoints:
+                continue
+            if mean_keypoint_score < self._min_mean_keypoint_score:
+                continue
+
             if area > best_area:
                 best_area = area
                 best = person
         return best
+
+    @staticmethod
+    def _extract_bbox_score(person: dict) -> float:
+        """検出 bbox の信頼度を float に正規化."""
+        raw_score = person.get("bbox_score", person.get("score", 0.0))
+        score_array = np.asarray(raw_score, dtype=np.float32).reshape(-1)
+        if score_array.size == 0:
+            return 0.0
+        return float(score_array[0])
 
     @staticmethod
     def _normalize_and_flatten(

@@ -45,6 +45,11 @@ sync_preprocess_node:
     image_width: 1280
     image_height: 720
     skeleton_device: "cuda:0"
+    person_min_bbox_score: 0.4
+    person_min_bbox_area_ratio: 0.03
+    person_min_mean_keypoint_score: 0.4
+    person_min_keypoint_score: 0.4
+    person_min_keypoints: 6
 
     # 同期
     sync_queue_size: 10
@@ -57,6 +62,7 @@ inference_node:
   ros__parameters:
     inference_stride: 10
     device: "cuda:0"
+    fall_decision_threshold: 0.35
 
     # PoseC3D (カメラ) 設定・チェックポイント
     camera_config_path: "/root/ros2_ws/install/lcfall_ros2/share/lcfall_ros2/config/slowonly_r50_inference.py"
@@ -78,3 +84,5 @@ visualization_node:
     image_width: 1280
     image_height: 720
     window_name: "LCFall ROS2 Demo"
+    window_width: 1600
+    window_height: 900

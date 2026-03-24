@@ -65,7 +65,7 @@ class AlertNode(Node):
         """
         self.get_logger().warn(
             f"🚨 FALL DETECTED! "
-            f"confidence={msg.confidence:.3f}, "
+            f"fall_prob={msg.confidence:.3f}, "
             f"stamp={msg.header.stamp.sec}.{msg.header.stamp.nanosec}"
         )
 

@@ -33,6 +33,8 @@ setup(
         'console_scripts': [
             'sync_preprocess_node = lcfall_ros2.sync_preprocess_node:main',
             'inference_node = lcfall_ros2.inference_node:main',
+            'camera_inference_node = lcfall_ros2.camera_inference_node:main',
+            'lidar_inference_node = lcfall_ros2.lidar_inference_node:main',
             'alert_node = lcfall_ros2.alert_node:main',
             'visualization_node = lcfall_ros2.visualization_node:main',
             'capture_background = lcfall_ros2.capture_background:main',

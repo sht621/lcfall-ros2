@@ -23,72 +23,41 @@ def global_normalize_pointclouds(
 ) -> NDArray[np.float32]:
     """48 フレーム窓の LiDAR グローバル正規化.
 
-    1 フレーム目を基準フレームとし、基準フレームの重心を原点に移動し、
-    基準フレームの最大距離で全フレームをスケーリングする。
-
-    - 1 フレーム目が空点群 (全ゼロ) なら、次の非空フレームを基準にする
-    - 窓全体が空点群なら、ゼロ埋め系列のまま返す
+    学習時 (`lidar/training/dataset_online_retrain.py`) と同じ規則:
+    - 先頭から「viable」な基準フレームを探す
+    - 基準フレームのユニーク点群の重心を引く
+    - 基準フレームの距離分布 95 パーセンタイルで全フレームを割る
 
     Args:
         pointcloud_sequence: (T, NUM_POINTS, 3) float32。
-            各フレームは (256, 3) の点群。
-            全ゼロのフレームは空点群とみなす。
 
     Returns:
         (T, NUM_POINTS, 3) 正規化済み点群。
     """
-    T = pointcloud_sequence.shape[0]
-    result = pointcloud_sequence.copy()
-
-    # 基準フレームを探す
-    ref_idx = _find_reference_frame(result)
-    if ref_idx is None:
-        # 全フレーム空 → そのまま返す
-        return result
-
-    ref_frame = result[ref_idx]  # (256, 3)
-
-    # 基準フレームの重心
-    centroid = ref_frame.mean(axis=0)  # (3,)
-
-    # 全フレームから重心を引く
-    for t in range(T):
-        if _is_empty_frame(result[t]):
-            continue
-        result[t] -= centroid
-
-    # 基準フレームの点群の最大距離
-    ref_centered = result[ref_idx]
-    max_dist = np.max(np.linalg.norm(ref_centered, axis=1))
-
-    if max_dist > 1e-6:
-        for t in range(T):
-            if _is_empty_frame(pointcloud_sequence[t]):
-                # 元が空のフレームは正規化後もゼロのまま
-                result[t] = np.zeros_like(result[t])
-            else:
-                result[t] /= max_dist
-
-    return result
+    centroid, scale = _compute_reference_frame(pointcloud_sequence)
+    return ((pointcloud_sequence - centroid) / scale).astype(np.float32)
 
 
-def _find_reference_frame(
+def _compute_reference_frame(
     sequence: NDArray[np.float32],
-) -> Optional[int]:
-    """基準フレームのインデックスを取得.
+) -> Tuple[NDArray[np.float32], float]:
+    """学習時と同じ基準重心・スケールを計算."""
+    for frame in sequence:
+        valid = frame[np.linalg.norm(frame, axis=1) > 0]
+        if len(valid) == 0:
+            continue
 
-    1 フレーム目から順に非空フレームを探す。
+        unique_points = np.unique(valid, axis=0)
+        if len(unique_points) < 4:
+            continue
 
-    Args:
-        sequence: (T, N, 3) 点群列。
+        centroid = unique_points.mean(axis=0)
+        distances = np.linalg.norm(unique_points - centroid, axis=1)
+        scale = float(np.percentile(distances, 95)) if len(distances) > 0 else 0.0
+        if scale >= 1.0e-2:
+            return centroid.astype(np.float32), scale
 
-    Returns:
-        基準フレームのインデックス。全て空なら None。
-    """
-    for t in range(sequence.shape[0]):
-        if not _is_empty_frame(sequence[t]):
-            return t
-    return None
+    return np.zeros(3, dtype=np.float32), 1.0
 
 
 def _is_empty_frame(frame: NDArray[np.float32]) -> bool:

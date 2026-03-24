@@ -59,6 +59,7 @@ class InferenceNode(Node):
         # ==============================================================
         self.declare_parameter("inference_stride", 10)
         self.declare_parameter("device", "cuda:0")
+        self.declare_parameter("fall_decision_threshold", 0.35)
 
         # モデルチェックポイントパス (デフォルト値を設定)
         self.declare_parameter("camera_config_path", "/root/ros2_ws/install/lcfall_ros2/share/lcfall_ros2/config/slowonly_r50_inference.py")
@@ -71,6 +72,9 @@ class InferenceNode(Node):
         )
         self._device: str = (
             self.get_parameter("device").value
+        )
+        self._fall_threshold: float = (
+            self.get_parameter("fall_decision_threshold").value
         )
         self._camera_config_path: str = (
             self.get_parameter("camera_config_path").value
@@ -315,12 +319,13 @@ class InferenceNode(Node):
             output = self._model(heatmap_tensor, pc_tensor)  # (1, 2)
             prob = torch.softmax(output, dim=1)  # (1, 2)
 
-            # class 0 = fall, class 1 = non-fall (LCFall の convention)
-            fall_prob = prob[0, 0].item()
-            prediction = 1 if fall_prob > 0.5 else 0
-            confidence = fall_prob if prediction == 1 else (1.0 - fall_prob)
+            # 学習時のラベル定義: class 0 = non-falling, class 1 = falling
+            fall_prob = prob[0, 1].item()
+            prediction = 1 if fall_prob > self._fall_threshold else 0
+            confidence = fall_prob
 
         return prediction, confidence
+
 
     def _dummy_inference(
         self,
