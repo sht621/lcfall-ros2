@@ -1,6 +1,6 @@
-# カメラ + LiDAR 転倒検知システム
+# RGBカメラ + LiDAR 転倒検知システム
 
-カメラとLiDARを用いたリアルタイム転倒検知システム
+RGBカメラとLiDARを用いたリアルタイム転倒検知システム
 
 ![alt text](docs/readme-assets/vis.png)
 
