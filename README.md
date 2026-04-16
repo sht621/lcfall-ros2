@@ -1,7 +1,8 @@
 # カメラ + LiDAR 転倒検知システム
 
-カメラとLiDARを用いたリアルタイム転倒検知システム。
-`docker compose` を中心に、背景取得と通常起動を分けて運用する。
+カメラとLiDARを用いたリアルタイム転倒検知システム
+
+![alt text](docs/readme-assets/vis.png)
 
 ## はじめに
 
@@ -37,21 +38,20 @@
 
 ### 1. センサの設置
 
-
 LiDAR の背景差分と ROI は、現在の設置状態を前提に動作する。
 センサ位置が変わると背景モデルを再取得する必要がある。
 
 ### 2. ケーブル接続
 
 - RealSense を USB でホスト PC に接続する
-- Livox MID-360 を LAN でホスト PC に接続する
+- Livox MID-360 を、ホスト PC の専用有線 NIC に LAN で接続する
 - Livox の電源アダプタを接続する
 
 ### 3. 起動前の確認
 
 - `docker compose up app` の前に、RealSense と Livox の電源が入っていることを確認する
 - RealSense はホスト側で `/dev/video*` が見えていることを確認する
-- LiDAR はホスト NIC 側の IP 設定が、Livox 設定と整合していることを確認する
+- LiDAR 用 NIC は、ホスト Ubuntu 側で固定 IPv4 `192.168.1.50/24` に設定する
 - 可視化を使う場合は、ホスト側の X11 が利用できる状態にする
 
 RealSense の確認例:
@@ -63,8 +63,23 @@ ls /dev/video*
 可視化ウィンドウが表示されない場合は、ホスト側で次を実行してから再起動する。
 
 ```bash
-xhost +
+xhost +local:root
 ```
+
+LiDAR 用 NIC の確認例:
+
+```bash
+ip addr
+```
+
+このシステムでは、LiDAR ネットワーク設定を次の固定値で運用する。
+
+- ホスト PC 側 LiDAR 用 NIC: `192.168.1.50`
+- Livox MID-360 側 IP: `192.168.1.5`
+
+Livox ドライバ用の設定ファイルは
+[config/livox/MID360_config.json](/home/user/lcfall_ws/lcfall-ros2/config/livox/MID360_config.json:1)
+で管理しており、`docker compose` 起動時に自動で使用する。
 
 ## ディレクトリ構成
 
@@ -160,30 +175,7 @@ docker compose run --rm background-capture
 
 既存の `data/background/background_voxel_map.npz` は上書きされる。
 
-## よく使う運用手順
-
-### 初回導入時
-
-```bash
-docker compose build
-docker compose run --rm background-capture
-docker compose up app
-```
-
-### 日常運用
-
-```bash
-docker compose up app
-```
-
-### 部屋レイアウト変更後
-
-```bash
-docker compose run --rm background-capture
-docker compose up app
-```
-
-## トラブルシュート
+## トラブルシューティング
 
 ### 背景モデルがないと言われる
 
@@ -206,7 +198,7 @@ docker compose run --rm background-capture
 - ホスト側で GUI が利用可能か確認する
 - `xhost +` を実行してから再起動する
 
-### RealSense が取得できない
+### RealSense が起動しない
 
 - USB ケーブル接続を確認する
 - ホスト側で `/dev/video*` が存在するか確認する
@@ -215,7 +207,8 @@ docker compose run --rm background-capture
 ### Livox が起動しない
 
 - 電源と LAN ケーブル接続を確認する
-- ホスト側 NIC の IP 設定とLivoxのIP設定を確認する
+- ホスト側 LiDAR 用 NIC が `192.168.1.50` になっているか確認する
+- [config/livox/MID360_config.json](/home/user/lcfall_ws/lcfall-ros2/config/livox/MID360_config.json:1) が利用されるため、コンテナ内の Livox 設定ファイルを手で編集していないか確認する
 - `lcfall.launch.py` 起動時の host IP 警告メッセージを確認する
 
 ## パラメータ調整
@@ -255,34 +248,7 @@ docker compose run --rm \
 
 ## システム概要
 
-```text
-┌──────────────────┐   ┌──────────────────────┐
-│  RealSense Camera │   │  Livox MID-360 LiDAR │
-│  /camera/image_raw│   │  /livox/lidar         │
-└────────┬─────────┘   └──────────┬───────────┘
-         │                        │
-         └───────────┬────────────┘
-                     ▼
-        ┌────────────────────────┐
-        │  sync_preprocess_node  │
-        │  - Skeleton抽出        │
-        │  - 座標変換 + 背景差分 │
-        └────────────┬───────────┘
-                     │ /preprocessed/frame
-                     ▼
-        ┌────────────────────────┐
-        │    inference_node      │
-        │  - Heatmap生成         │
-        │  - 融合モデル推論      │
-        └────────────┬───────────┘
-                     │ /fall_detection/result
-              ┌──────┴──────┐
-              ▼             ▼
-    ┌──────────────┐ ┌──────────────────┐
-    │  alert_node   │ │ visualization_node│
-    │  通知/ログ    │ │ OpenCV 可視化     │
-    └──────────────┘ └──────────────────┘
-```
+![alt text](docs/readme-assets/architecture.png)
 
 ## パッケージ構成
 
@@ -310,7 +276,7 @@ docker compose run --rm \
 | cls_head | `I3DHead` (in_channels=512, num_classes=2) |
 | 入力 | Heatmap `(B, 17, 48, 56, 56)` |
 | Heatmap sigma | 0.6 |
-| キーポイント | 左 8 点、右 8 点 |
+| キーポイント | 17 点 |
 
 ### LiDAR Branch — PointNet++ + GRU
 
@@ -367,7 +333,6 @@ R = Rz(yaw) · Ry(pitch) · Rx(roll)
 | 左 | カメラ画像 + skeleton overlay |
 | 右 | 点群の投影 |
 | 上部 | 転倒時のみ `FALLING` を表示 |
-| 下部 | confidence 値 |
+| 下部 | confidence 値グラフ |
 
 48 フレーム蓄積前は待機表示になる。
-
