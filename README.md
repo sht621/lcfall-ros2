@@ -315,7 +315,7 @@ float32 confidence
 
 ## 座標変換
 
-LiDAR センサ座標から部屋座標系への変換は、以下の回転行列で行う。
+LiDAR センサ座標から部屋座標系への変換は、以下の回転行列で行っている。
 
 ```text
 R = Rz(yaw) · Ry(pitch) · Rx(roll)
@@ -334,5 +334,3 @@ R = Rz(yaw) · Ry(pitch) · Rx(roll)
 | 右 | 点群の投影 |
 | 上部 | 転倒時のみ `FALLING` を表示 |
 | 下部 | confidence 値グラフ |
-
-48 フレーム蓄積前は待機表示になる。
