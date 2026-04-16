@@ -1,18 +1,14 @@
 services:
-  lcfall:
+  app:
     build:
       context: .
       dockerfile: Dockerfile
     image: lcfall-ros2-image
-    container_name: lcfall-ros2-container
     tty: true
     stdin_open: true
-    
     network_mode: host
     ipc: host
-    
     privileged: true
-
     devices:
       - /dev/video0:/dev/video0
       - /dev/video1:/dev/video1
@@ -24,11 +20,39 @@ services:
     environment:
       - DISPLAY=${DISPLAY:-:0}
       - QT_X11_NO_MITSHM=1
+      - ENABLE_VISUALIZATION=${ENABLE_VISUALIZATION:-true}
+      - LIVOX_CONFIG_PATH=/root/ros2_ws/src/LCFall/config/livox/MID360_config.json
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - .:/root/ros2_ws/src/LCFall
       - ./data:/data
+    entrypoint: ["/root/ros2_ws/src/LCFall/docker/entrypoint.sh"]
+    command: ["/root/ros2_ws/src/LCFall/docker/run_app.sh"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, utility, compute]
 
+  background-capture:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: lcfall-ros2-image
+    tty: true
+    stdin_open: true
+    network_mode: host
+    ipc: host
+    privileged: true
+    environment:
+      - LIVOX_CONFIG_PATH=/root/ros2_ws/src/LCFall/config/livox/MID360_config.json
+    volumes:
+      - .:/root/ros2_ws/src/LCFall
+      - ./data:/data
+    entrypoint: ["/root/ros2_ws/src/LCFall/docker/entrypoint.sh"]
+    command: ["/root/ros2_ws/src/LCFall/docker/run_background_capture.sh"]
     deploy:
       resources:
         reservations:

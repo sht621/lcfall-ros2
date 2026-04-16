@@ -25,6 +25,8 @@ from ament_index_python.packages import get_package_share_directory
 
 
 def generate_launch_description():
+    pkg_share = get_package_share_directory("lcfall_ros2")
+    default_params_file = os.path.join(pkg_share, "config", "params.yaml")
     livox_pkg_share = get_package_share_directory("livox_ros_driver2")
     default_livox_config_path = os.path.join(
         livox_pkg_share, "config", "MID360_config.json"
@@ -34,6 +36,11 @@ def generate_launch_description():
     # Launch 引数
     # ------------------------------------------------------------------
     args = [
+        DeclareLaunchArgument(
+            "params_file",
+            default_value=default_params_file,
+            description="Path to the parameters YAML file",
+        ),
         DeclareLaunchArgument("lidar_topic", default_value="/livox/lidar"),
         DeclareLaunchArgument(
             "livox_config_path",
@@ -53,6 +60,7 @@ def generate_launch_description():
         DeclareLaunchArgument("roi_z_min", default_value="0.1"),
         DeclareLaunchArgument("roi_z_max", default_value="2.0"),
     ]
+    params_file = LaunchConfiguration("params_file")
 
     # ------------------------------------------------------------------
     # LiDAR ドライバ (Livox MID-360)
@@ -80,19 +88,22 @@ def generate_launch_description():
         executable="capture_background",
         name="capture_background_node",
         output="screen",
-        parameters=[{
-            "lidar_topic": LaunchConfiguration("lidar_topic"),
-            "output_path": LaunchConfiguration("output_path"),
-            "capture_frames": LaunchConfiguration("capture_frames"),
-            "voxel_size": LaunchConfiguration("voxel_size"),
-            "min_hits": LaunchConfiguration("min_hits"),
-            "roi_x_min": LaunchConfiguration("roi_x_min"),
-            "roi_x_max": LaunchConfiguration("roi_x_max"),
-            "roi_y_min": LaunchConfiguration("roi_y_min"),
-            "roi_y_max": LaunchConfiguration("roi_y_max"),
-            "roi_z_min": LaunchConfiguration("roi_z_min"),
-            "roi_z_max": LaunchConfiguration("roi_z_max"),
-        }],
+        parameters=[
+            params_file,
+            {
+                "lidar_topic": LaunchConfiguration("lidar_topic"),
+                "output_path": LaunchConfiguration("output_path"),
+                "capture_frames": LaunchConfiguration("capture_frames"),
+                "voxel_size": LaunchConfiguration("voxel_size"),
+                "min_hits": LaunchConfiguration("min_hits"),
+                "roi_x_min": LaunchConfiguration("roi_x_min"),
+                "roi_x_max": LaunchConfiguration("roi_x_max"),
+                "roi_y_min": LaunchConfiguration("roi_y_min"),
+                "roi_y_max": LaunchConfiguration("roi_y_max"),
+                "roi_z_min": LaunchConfiguration("roi_z_min"),
+                "roi_z_max": LaunchConfiguration("roi_z_max"),
+            },
+        ],
     )
 
     # ------------------------------------------------------------------
