@@ -62,7 +62,7 @@ RUN mkdir -p src && \
     git clone --depth 1 https://github.com/Livox-SDK/livox_ros_driver2.git src/livox_ros_driver2 && \
     cp src/livox_ros_driver2/package_ROS2.xml src/livox_ros_driver2/package.xml && \
     . /opt/ros/humble/setup.sh && \
-    colcon build --packages-up-to livox_ros_driver2 --cmake-args -DROS_EDITION="ROS2"  && \
+    colcon build --packages-up-to livox_ros_driver2 --cmake-args -DROS_EDITION="ROS2" -DHUMBLE_ROS="humble" && \
     echo "source /root/ros2_ws/install/setup.bash" >> /root/.bashrc && \
     rm -rf build log
 

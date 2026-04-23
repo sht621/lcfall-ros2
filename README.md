@@ -65,7 +65,7 @@ cd lcfall-ros2
 
 ### 2. 推論モデルを配置する
 
-3 つのチェックポイントをホスト側の `data/checkpoints/` に配置する。
+以下のコマンドでフォルダを作った後、3 つのチェックポイントをホスト側の `data/checkpoints/` に配置する。
 ```bash
 mkdir -p data/checkpoints/camera \
          data/checkpoints/lidar \
