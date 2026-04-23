@@ -109,7 +109,7 @@ LiDAR の背景差分と ROI は、現在の設置状態を前提に動作する
 
 #### 起動前の確認
 
-- `docker compose up app` の前に、RealSense と Livox の電源が入っていることを確認する
+- `./run_fall_detection.sh` の前に、RealSense と Livox の電源が入っていることを確認する
 - RealSense はホスト側で `/dev/video*` が見えていることを確認する
 - LiDAR 用 NIC は、ホスト Ubuntu 側で固定 IPv4 `192.168.1.50/24` に設定する
 - 可視化を使う場合は、ホスト側の X11 が利用できる状態にする
@@ -119,6 +119,9 @@ RealSense の確認例:
 ```bash
 ls /dev/video*
 ```
+
+`app` 起動時は `docker/compose_with_video_devices.sh` が `ls /dev/video*` で存在する video デバイスだけを確認し、
+Compose の追加設定として自動でコンテナへ渡す。
 
 可視化ウィンドウが表示されない場合は、ホスト側で次を実行してから再起動する。
 
@@ -135,7 +138,7 @@ ip addr
 このシステムでは、LiDAR ネットワーク設定を次の固定値で運用する。
 
 - ホスト PC 側 LiDAR 用 NIC: `192.168.1.50`
-- Livox MID-360 側 IP: `192.168.1.5`
+- Livox MID-360 側 IP: `192.168.1.198`
 
 Livox ドライバ用の設定ファイルは
 [config/livox/MID360_config.json](/home/user/lcfall_ws/lcfall-ros2/config/livox/MID360_config.json:1)
@@ -146,7 +149,7 @@ Livox ドライバ用の設定ファイルは
 背景モデルは、必ず部屋に人がいない状態で取得する。
 
 ```bash
-docker compose run --rm background-capture
+./run_capture_background.sh
 ```
 
 完了すると、背景モデルが `data/background/background_voxel_map.npz` に保存される。
@@ -158,19 +161,19 @@ docker compose run --rm background-capture
 センサドライバ、前処理、推論、可視化をまとめて起動する。
 
 ```bash
-docker compose up app
+./run_fall_detection.sh
 ```
 
 ### 可視化なしで起動
 
 ```bash
-ENABLE_VISUALIZATION=false docker compose up app
+./run_fall_detection.sh --no-vis
 ```
 
 ### 停止
 
 ```bash
-docker compose down
+./docker/compose_with_video_devices.sh down
 ```
 
 ## 背景モデルの再取得
@@ -185,7 +188,7 @@ docker compose down
 再取得コマンド:
 
 ```bash
-docker compose run --rm background-capture
+./run_capture_background.sh
 ```
 
 既存の `data/background/background_voxel_map.npz` は上書きされる。
@@ -195,10 +198,10 @@ docker compose run --rm background-capture
 ### 背景モデルがないと言われる
 
 ```bash
-docker compose run --rm background-capture
+./run_capture_background.sh
 ```
 
-部屋に人がいない状態で再取得してから、`docker compose up app` を実行する。
+部屋に人がいない状態で再取得してから、`./run_fall_detection.sh` を実行する。
 
 ### checkpoint が足りないと言われる
 
