@@ -5,6 +5,7 @@ WORKSPACE_ROOT="/root/ros2_ws"
 LCFALL_MSGS_MARKER="${WORKSPACE_ROOT}/install/lcfall_msgs/share/lcfall_msgs/package.xml"
 LCFALL_ROS2_MARKER="${WORKSPACE_ROOT}/install/lcfall_ros2/share/lcfall_ros2/package.xml"
 
+export AMENT_TRACE_SETUP_FILES="${AMENT_TRACE_SETUP_FILES:-}"
 source /opt/ros/humble/setup.bash
 
 if [[ -f "${WORKSPACE_ROOT}/install/setup.bash" ]]; then
