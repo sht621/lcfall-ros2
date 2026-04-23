@@ -9,9 +9,9 @@ RGBカメラとLiDARを用いたリアルタイム転倒検知システム
 このシステムは、次の流れで使用する。
 
 1. GitHub からリポジトリを clone する
-2. 機材を接続して設置する
-3. 推論モデルを `data/checkpoints/` に配置する
-4. Docker イメージをビルドする
+2. 推論モデルを `data/checkpoints/` に配置する
+3. Docker イメージをビルドする
+4. 機材を接続して設定する
 5. 背景モデルを取得する
 6. 転倒検知システムを起動する
 
@@ -25,6 +25,8 @@ RGBカメラとLiDARを用いたリアルタイム転倒検知システム
 - カメラ: Intel RealSense D455
 - LiDAR: Livox MID-360
 
+![alt text](docs/readme-assets/sensor.png)
+
 ## 必要機材
 
 - 転倒検知を実行する Linux PC
@@ -34,53 +36,6 @@ RGBカメラとLiDARを用いたリアルタイム転倒検知システム
 - RealSense 接続用 USB ケーブル
 - Livox 接続用 LAN ケーブル
 - LiDAR 用電源アダプタ(Type-C)
-
-## ハードウェアの設置と扱い
-
-### 1. センサの設置
-
-LiDAR の背景差分と ROI は、現在の設置状態を前提に動作する。
-センサ位置が変わると背景モデルを再取得する必要がある。
-
-### 2. ケーブル接続
-
-- RealSense を USB でホスト PC に接続する
-- Livox MID-360 を、ホスト PC の専用有線 NIC に LAN で接続する
-- Livox の電源アダプタを接続する
-
-### 3. 起動前の確認
-
-- `docker compose up app` の前に、RealSense と Livox の電源が入っていることを確認する
-- RealSense はホスト側で `/dev/video*` が見えていることを確認する
-- LiDAR 用 NIC は、ホスト Ubuntu 側で固定 IPv4 `192.168.1.50/24` に設定する
-- 可視化を使う場合は、ホスト側の X11 が利用できる状態にする
-
-RealSense の確認例:
-
-```bash
-ls /dev/video*
-```
-
-可視化ウィンドウが表示されない場合は、ホスト側で次を実行してから再起動する。
-
-```bash
-xhost +local:root
-```
-
-LiDAR 用 NIC の確認例:
-
-```bash
-ip addr
-```
-
-このシステムでは、LiDAR ネットワーク設定を次の固定値で運用する。
-
-- ホスト PC 側 LiDAR 用 NIC: `192.168.1.50`
-- Livox MID-360 側 IP: `192.168.1.5`
-
-Livox ドライバ用の設定ファイルは
-[config/livox/MID360_config.json](/home/user/lcfall_ws/lcfall-ros2/config/livox/MID360_config.json:1)
-で管理しており、`docker compose` 起動時に自動で使用する。
 
 ## ディレクトリ構成
 
@@ -139,7 +94,54 @@ docker compose build
 コンテナ起動時に `lcfall_msgs` と `lcfall_ros2` は自動で `colcon build` されるため、
 通常は手動ビルド不要。
 
-### 4. 初回背景取得を行う
+### 4. センサを接続して設定する
+
+#### センサの設置
+
+LiDAR の背景差分と ROI は、現在の設置状態を前提に動作する。
+センサ位置が変わると背景モデルを再取得する必要がある。
+
+#### ケーブル接続
+
+- RealSense を USB でホスト PC に接続する
+- Livox MID-360 を、ホスト PC の専用有線 NIC に LAN で接続する
+- Livox の電源アダプタを接続する
+
+#### 起動前の確認
+
+- `docker compose up app` の前に、RealSense と Livox の電源が入っていることを確認する
+- RealSense はホスト側で `/dev/video*` が見えていることを確認する
+- LiDAR 用 NIC は、ホスト Ubuntu 側で固定 IPv4 `192.168.1.50/24` に設定する
+- 可視化を使う場合は、ホスト側の X11 が利用できる状態にする
+
+RealSense の確認例:
+
+```bash
+ls /dev/video*
+```
+
+可視化ウィンドウが表示されない場合は、ホスト側で次を実行してから再起動する。
+
+```bash
+xhost +local:root
+```
+
+LiDAR 用 NIC の確認例:
+
+```bash
+ip addr
+```
+
+このシステムでは、LiDAR ネットワーク設定を次の固定値で運用する。
+
+- ホスト PC 側 LiDAR 用 NIC: `192.168.1.50`
+- Livox MID-360 側 IP: `192.168.1.5`
+
+Livox ドライバ用の設定ファイルは
+[config/livox/MID360_config.json](/home/user/lcfall_ws/lcfall-ros2/config/livox/MID360_config.json:1)
+で管理しており、`docker compose` 起動時に自動で使用する。
+
+### 5. 初回背景取得を行う
 
 背景モデルは、必ず部屋に人がいない状態で取得する。
 
