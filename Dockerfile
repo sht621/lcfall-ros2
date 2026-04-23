@@ -88,12 +88,12 @@ RUN pip3 install --upgrade pip && \
     ninja \
     psutil \
     cython \
-    "numpy<2"
+    "numpy==1.26.4"
 
 # =============================================================
 # 7. PyTorch
 # =============================================================
-RUN pip3 install --pre torch torchvision torchaudio "numpy<2" \
+RUN pip3 install --pre torch torchvision torchaudio "numpy==1.26.4" \
     --index-url https://download.pytorch.org/whl/nightly/cu128
 
 # =============================================================
@@ -119,7 +119,7 @@ RUN pip3 install --no-cache-dir --force-reinstall \
 # 9. Python 追加依存
 # =============================================================
 RUN pip3 install --no-cache-dir \
-    "numpy<2" \
+    "numpy==1.26.4" \
     "opencv-python-headless<4.10.0.84" \
     "opencv-python<4.10.0.84" \
     "opencv-contrib-python<4.10.0.84"
