@@ -3,12 +3,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      network: host
     image: lcfall-ros2-image
     tty: true
     stdin_open: true
     network_mode: host
     ipc: host
-    privileged: true
     devices:
       - /dev/video0:/dev/video0
       - /dev/video1:/dev/video1
