@@ -110,7 +110,7 @@ RUN pip3 install --no-cache-dir --force-reinstall \
     pip3 install --no-cache-dir mmengine==0.10.7 && \
     pip3 install --no-build-isolation --no-cache-dir "mmcv==2.1.0" && \
     pip3 install chumpy --no-build-isolation && \
-    pip3 install mmpose==1.3.1 mmdet==3.3.0 mmaction2==1.2.0 && \
+    pip3 install mmpose==1.3.1 mmdet==3.3.0 mmaction2==1.2.0 mmpretrain==1.2.0 && \
     mkdir -p /usr/local/lib/python3.10/dist-packages/mmaction/models/localizers/drn && \
     echo "class DRN: pass" > /usr/local/lib/python3.10/dist-packages/mmaction/models/localizers/drn/__init__.py && \
     echo "class DRN: pass" > /usr/local/lib/python3.10/dist-packages/mmaction/models/localizers/drn/drn.py

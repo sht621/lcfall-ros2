@@ -168,6 +168,13 @@ class SyncPreprocessNode(Node):
             min_keypoint_score=person_min_keypoint_score,
             min_keypoints=person_min_keypoints,
         )
+        if not self._skeleton_extractor.is_ready():
+            self.get_logger().error(
+                "SkeletonExtractor initialization failed. "
+                "Person detection / pose estimation will not run. "
+                f"Reason: {self._skeleton_extractor.init_error}"
+            )
+            raise SystemExit("SkeletonExtractor is not available.")
 
         # ==============================================================
         # 背景モデル読み込み

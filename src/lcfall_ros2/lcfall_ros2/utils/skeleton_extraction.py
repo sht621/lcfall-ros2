@@ -46,7 +46,15 @@ class SkeletonExtractor:
         self._min_keypoint_score = float(min_keypoint_score)
         self._min_keypoints = int(min_keypoints)
         self._inferencer = None
+        self._init_error: Optional[str] = None
         self._initialize_model()
+
+    @property
+    def init_error(self) -> Optional[str]:
+        return self._init_error
+
+    def is_ready(self) -> bool:
+        return self._inferencer is not None
 
     def _initialize_model(self) -> None:
         """MMPoseInferencer を初期化."""
@@ -61,12 +69,21 @@ class SkeletonExtractor:
                 det_cat_ids=[0],  # person のみ
                 device=self._device,
             )
+            self._init_error = None
         except ImportError:
             # mmpose がインストールされていない環境ではダミーモードで動作
             self._inferencer = None
-        except Exception:
+            self._init_error = (
+                "MMPose runtime is not available (missing Python package). "
+                "Install mmpose + mmpretrain to enable person detection / pose."
+            )
+        except Exception as exc:
             # モデルのダウンロードやロードに失敗した場合
             self._inferencer = None
+            self._init_error = (
+                "Failed to initialize MMPoseInferencer. "
+                f"Model download or load may have failed: {exc}"
+            )
 
     def extract(
         self,
