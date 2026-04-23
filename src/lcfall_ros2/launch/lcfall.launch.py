@@ -139,6 +139,8 @@ def generate_launch_description():
             "enable_depth": False,
             "enable_infra1": False,
             "enable_infra2": False,
+            'enable_gyro': False,
+            'enable_accel': False
         }],
         remappings=[
             ("camera/color/image_raw", "/camera/image_raw"),
