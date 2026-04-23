@@ -173,7 +173,7 @@ Livox ドライバ用の設定ファイルは
 ### 停止
 
 ```bash
-./docker/compose_with_video_devices.sh down
+docker compose down
 ```
 
 ## 背景モデルの再取得
