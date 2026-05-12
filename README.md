@@ -8,12 +8,11 @@ RGBカメラとLiDARを用いたリアルタイム転倒検知システム
 
 このシステムは、次の流れで使用する。
 
-1. GitHub からリポジトリを clone する
-2. 推論モデルを `data/checkpoints/` に配置する
+1. ZIPファイルを展開する
+2. 機材を接続して設置する
 3. Docker イメージをビルドする
-4. 機材を接続して設定する
-5. 背景モデルを取得する
-6. 転倒検知システムを起動する
+4. 背景モデルを取得する
+5. 転倒検知システムを起動する
 
 背景モデルは、初回導入時と、部屋レイアウトやセンサ設置位置が変わったときに再取得する。
 
@@ -56,21 +55,16 @@ data/
 
 ## セットアップ
 
-### 1. GitHub から clone する
+### 1. ZIPファイルを展開する
 
 ```bash
-git clone <REPOSITORY_URL>
-cd lcfall-ros2
+unzip lcfall-ros2.zip -d ~/
+cd ~/lcfall-ros2
 ```
 
-### 2. 推論モデルを配置する
+### 2. 推論モデルを確認する
 
-以下のコマンドでフォルダを作った後、3 つのチェックポイントをホスト側の `data/checkpoints/` に配置する。
-```bash
-mkdir -p data/checkpoints/camera \
-         data/checkpoints/lidar \
-         data/checkpoints/fusion
-```
+3 つのチェックポイントが `data/checkpoints/` に配置されているか確認する。
 
 ```text
 data/
