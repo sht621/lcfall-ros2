@@ -4,20 +4,35 @@ services:
       context: .
       dockerfile: Dockerfile
       network: host
-    image: lcfall-ros2-image
+    image: lcfall-ros2-rtx3050-image
     tty: true
     stdin_open: true
     network_mode: host
     ipc: host
     environment:
       - DISPLAY=${DISPLAY:-:0}
+      - XAUTHORITY=/tmp/.Xauthority
       - QT_X11_NO_MITSHM=1
       - ENABLE_VISUALIZATION=${ENABLE_VISUALIZATION:-true}
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+      - ROS_DOMAIN_ID=43
+      - ROS_LOCALHOST_ONLY=0
+      - FASTRTPS_DEFAULT_PROFILES_FILE=/etc/fastdds/fastdds_wlo1.xml
+      - PYTHONDONTWRITEBYTECODE=1
       - LIVOX_CONFIG_PATH=/root/ros2_ws/src/LCFall/config/livox/MID360_config.json
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ${XAUTHORITY_HOST:-/dev/null}:/tmp/.Xauthority:ro
+      - /dev/bus/usb:/dev/bus/usb:rw
       - .:/root/ros2_ws/src/LCFall
       - ./data:/data
+      - ./data/model-cache:/root/.cache
+      - ./data/checkpoints/camera/best_model.pth:/data/checkpoints/camera/best_model.pth:ro
+      - ./data/checkpoints/lidar/best_model.pth:/data/checkpoints/lidar/best_model.pth:ro
+      - ./data/checkpoints/fusion/best_model.pth:/data/checkpoints/fusion/best_model.pth:ro
+      - ./config/fastdds/fastdds_wlo1.xml:/etc/fastdds/fastdds_wlo1.xml:ro
+    device_cgroup_rules:
+      - "c 189:* rmw"
     entrypoint: ["/root/ros2_ws/src/LCFall/docker/entrypoint.sh"]
     command: ["/root/ros2_ws/src/LCFall/docker/run_app.sh"]
     deploy:
@@ -28,27 +43,38 @@ services:
               count: all
               capabilities: [gpu, utility, compute]
 
-  background-capture:
+  roi-tuner:
     build:
       context: .
       dockerfile: Dockerfile
-    image: lcfall-ros2-image
+      network: host
+    image: lcfall-ros2-rtx3050-image
     tty: true
     stdin_open: true
     network_mode: host
     ipc: host
-    privileged: true
     environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - XAUTHORITY=/tmp/.Xauthority
+      - QT_X11_NO_MITSHM=1
+      - LIBGL_ALWAYS_SOFTWARE=1
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+      - ROS_DOMAIN_ID=43
+      - ROS_LOCALHOST_ONLY=0
+      - FASTRTPS_DEFAULT_PROFILES_FILE=/etc/fastdds/fastdds_wlo1.xml
+      - PYTHONDONTWRITEBYTECODE=1
       - LIVOX_CONFIG_PATH=/root/ros2_ws/src/LCFall/config/livox/MID360_config.json
+      - ROI_CONFIG_PATH=/root/ros2_ws/src/LCFall/src/lcfall_ros2/config/params.yaml
+      - ROI_TUNER_AUTOTEST=${ROI_TUNER_AUTOTEST:-}
+      - ROI_TUNER_SCREENSHOT_PATH=${ROI_TUNER_SCREENSHOT_PATH:-}
     volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ${XAUTHORITY_HOST:-/home/dlab/.Xauthority}:/tmp/.Xauthority:ro
+      - /usr/share/fonts/opentype/noto:/usr/share/fonts/opentype/noto:ro
+      - /dev/bus/usb:/dev/bus/usb:rw
       - .:/root/ros2_ws/src/LCFall
-      - ./data:/data
+      - ./config/fastdds/fastdds_wlo1.xml:/etc/fastdds/fastdds_wlo1.xml:ro
+    device_cgroup_rules:
+      - "c 189:* rmw"
     entrypoint: ["/root/ros2_ws/src/LCFall/docker/entrypoint.sh"]
-    command: ["/root/ros2_ws/src/LCFall/docker/run_background_capture.sh"]
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu, utility, compute]
+    command: ["/root/ros2_ws/src/LCFall/docker/run_roi_tuner.sh"]

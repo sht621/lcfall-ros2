@@ -11,10 +11,9 @@ RGBカメラとLiDARを用いたリアルタイム転倒検知システム
 1. ZIPファイルを展開する
 2. 機材を接続して設置する
 3. Docker イメージをビルドする
-4. 背景モデルを取得する
-5. 転倒検知システムを起動する
-
-背景モデルは、初回導入時と、部屋レイアウトやセンサ設置位置が変わったときに再取得する。
+4. 初回または環境変更時に起動前確認を実行する
+5. 必要に応じて ROI を調整する
+6. 転倒検知システムを起動する
 
 ## 前提環境
 
@@ -31,7 +30,7 @@ RGBカメラとLiDARを用いたリアルタイム転倒検知システム
 - 転倒検知を実行する Linux PC
 - NVIDIA GPU
 - Intel RealSense D455
-- Livox MID-360 
+- Livox MID-360
 - RealSense 接続用 USB ケーブル
 - Livox 接続用 LAN ケーブル
 - LiDAR 用電源アダプタ(Type-C)
@@ -42,16 +41,30 @@ RGBカメラとLiDARを用いたリアルタイム転倒検知システム
 
 ```text
 data/
-├── background/
-│   └── background_voxel_map.npz
-└── checkpoints/
-    ├── camera/
-    │   └── best_model.pth
-    ├── lidar/
-    │   └── best_model.pth
-    └── fusion/
-        └── best_model.pth
+├── checkpoints/
+│   ├── camera/
+│   │   └── best_model.pth
+│   ├── lidar/
+│   │   └── best_model.pth
+│   └── fusion/
+│       └── best_model.pth
+└── model-cache/
+    └── torch/hub/checkpoints/
+        ├── rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth
+        └── td-hm_ViTPose-small-simple_8xb64-210e_coco-256x192-4c101a76_20230314.pth
 ```
+
+`data/checkpoints/` はLCFallの学習済み重み、`data/model-cache/` は姿勢推定器が参照するキャッシュであり、用途が異なる。
+
+ホストPCから直接実行するスクリプトは次の3つだけである。
+
+| スクリプト | 用途 |
+|---|---|
+| `scripts/run.sh` | 統合デモの通常起動 |
+| `scripts/run_roi_tuner.sh` | ROI調整GUIの起動 |
+| `scripts/setup_and_check.sh` | 初期設定と単独の動作確認 |
+
+`docker/` 配下はComposeがコンテナ内部で使用するため、ホストから直接実行しない。
 
 ## セットアップ
 
@@ -64,7 +77,7 @@ cd ~/lcfall-ros2
 
 ### 2. 推論モデルを確認する
 
-3 つのチェックポイントが `data/checkpoints/` に配置されているか確認する。
+3つのチェックポイントが `data/checkpoints/` に配置されているか確認する。
 
 ```text
 data/
@@ -92,8 +105,8 @@ docker compose build
 
 #### センサの設置
 
-LiDAR の背景差分と ROI は、現在の設置状態を前提に動作する。
-センサ位置が変わると背景モデルを再取得する必要がある。
+LiDAR の ROI は、現在の設置状態を前提に動作する。
+センサ位置が変わった場合は ROI 調整GUIで範囲を確認する。
 
 #### ケーブル接続
 
@@ -103,7 +116,7 @@ LiDAR の背景差分と ROI は、現在の設置状態を前提に動作する
 
 #### 起動前の確認
 
-- `./run_fall_detection.sh` の前に、RealSense と Livox の電源が入っていることを確認する
+- `./scripts/run.sh` の前に、RealSense と Livox の電源が入っていることを確認する
 - RealSense はホスト側で `/dev/video*` が見えていることを確認する
 - LiDAR 用 NIC は、ホスト Ubuntu 側で固定 IPv4 `192.168.1.50/24` に設定する
 - 可視化を使う場合は、ホスト側の X11 が利用できる状態にする
@@ -114,14 +127,10 @@ RealSense の確認例:
 ls /dev/video*
 ```
 
-`app` 起動時は `docker/compose_with_video_devices.sh` が `ls /dev/video*` で存在する video デバイスだけを確認し、
-Compose の追加設定として自動でコンテナへ渡す。
+`app` 起動時は `scripts/run.sh` が存在する `/dev/video*` を列挙し、
+一時的な Compose override としてコンテナへ渡す。この一時ファイルは `/tmp` に作成され、終了時に自動削除される。
 
-可視化ウィンドウが表示されない場合は、ホスト側で次を実行してから再起動する。
-
-```bash
-xhost +local:root
-```
+可視化を有効にした場合、`scripts/run.sh` が現在のX11 displayとauthorityを検出し、authorityファイルをread-onlyでコンテナへ渡す。`xhost +`は不要である。
 
 LiDAR 用 NIC の確認例:
 
@@ -135,18 +144,36 @@ ip addr
 - Livox MID-360 側 IP: `192.168.1.198`
 
 Livox ドライバ用の設定ファイルは
-[config/livox/MID360_config.json](/home/user/lcfall_ws/lcfall-ros2/config/livox/MID360_config.json:1)
+[config/livox/MID360_config.json](config/livox/MID360_config.json)
 で管理しており、`docker compose` 起動時に自動で使用する。
 
-### 5. 初回背景取得を行う
+#### ROS 2／Fast DDSネットワーク
 
-背景モデルは、必ず部屋に人がいない状態で取得する。
+正式構成はFast DDS、ROS Domain 43、`ROS_LOCALHOST_ONLY=0`を使用する。外部DDS通信は[config/fastdds/fastdds_wlo1.xml](config/fastdds/fastdds_wlo1.xml)によりWi-Fi NIC `wlo1`へ限定し、Livox専用NICとDocker bridgeをDDS通信に使用しない。Livox独自UDP通信は`enxf8e43b827753`を使用する。
+
+Wi-FiのIPv4アドレスが変わった場合は、通常起動前に`./scripts/setup_and_check.sh`を実行してFast DDS XMLを現在の`wlo1`へ合わせる。別PCから購読する場合もROS Domain 43を使用する。
+
+### 5. 起動前確認を単独実行する
+
+初回導入時、ネットワーク変更時、または問題調査時に次を実行する。
 
 ```bash
-./run_capture_background.sh
+./scripts/setup_and_check.sh
 ```
 
-完了すると、背景モデルが `data/background/background_voxel_map.npz` に保存される。
+このスクリプトは、プロジェクト固有の安全に自動設定できる項目を設定した後、ホスト環境、GPU、Docker、Wi-Fi、Livox専用NIC、RealSense、Fast DDS、ROS 2トピック、実モデル推論を確認する。詳細ログは`/tmp/lcfall-setup-and-check.log`へ保存される。Dockerイメージが存在しない場合はビルドも実行する。Livox専用NICの修正が必要な場合に限り、`nmcli`実行のためsudo認証を求める。
+
+通常起動とは独立しており、`scripts/run.sh`から自動実行されることはない。毎回の起動前に実行する必要もない。
+
+### 6. ROIを調整する
+
+カメラ映像とLiDAR点群を見ながら調整する場合は、次を実行する。
+
+```bash
+./scripts/run_roi_tuner.sh
+```
+
+保存したROIは `src/lcfall_ros2/config/params.yaml` に反映される。
 
 ## 通常運用
 
@@ -155,13 +182,15 @@ Livox ドライバ用の設定ファイルは
 センサドライバ、前処理、推論、可視化をまとめて起動する。
 
 ```bash
-./run_fall_detection.sh
+./scripts/run.sh
 ```
+
+このコマンドは`setup_and_check.sh`を実行せず、既存イメージを`--no-build`で起動する。RealSenseのvideoデバイス割当と、可視化用X11設定だけを起動時に行う。
 
 ### 可視化なしで起動
 
 ```bash
-./run_fall_detection.sh --no-vis
+ENABLE_VISUALIZATION=false ./scripts/run.sh
 ```
 
 ### 停止
@@ -170,32 +199,7 @@ Livox ドライバ用の設定ファイルは
 docker compose down
 ```
 
-## 背景モデルの再取得
-
-以下のような場合は、背景モデルを取り直す。
-
-- 部屋のレイアウトを変更した
-- カメラや LiDAR の位置、向き、高さを変更した
-- 背景取得時に人や物体が動いていた
-- 前景がうまく抜けず、推論に悪影響が出ている
-
-再取得コマンド:
-
-```bash
-./run_capture_background.sh
-```
-
-既存の `data/background/background_voxel_map.npz` は上書きされる。
-
 ## トラブルシューティング
-
-### 背景モデルがないと言われる
-
-```bash
-./run_capture_background.sh
-```
-
-部屋に人がいない状態で再取得してから、`./run_fall_detection.sh` を実行する。
 
 ### checkpoint が足りないと言われる
 
@@ -207,8 +211,16 @@ docker compose down
 
 ### 可視化ウィンドウが開かない
 
-- ホスト側で GUI が利用可能か確認する
-- `xhost +` を実行してから再起動する
+- ホスト側でX11セッションが利用可能か確認する
+- `echo "$DISPLAY"`と`ls -l /tmp/.X11-unix/`でdisplayを確認する
+- `XAUTHORITY`を明示している場合は、そのファイルが読み取り可能か確認する
+- `DISPLAY`が未設定の場合、X11 socketが1つだけなら`scripts/run.sh`が自動選択する。複数ある場合は、利用するdisplayを明示する
+
+```bash
+DISPLAY=:1 ./scripts/run.sh
+```
+
+全ユーザーへX11アクセスを許可する`xhost +`は使用しない。
 
 ### RealSense が起動しない
 
@@ -220,38 +232,18 @@ docker compose down
 
 - 電源と LAN ケーブル接続を確認する
 - ホスト側 LiDAR 用 NIC が `192.168.1.50` になっているか確認する
-- [config/livox/MID360_config.json](/home/user/lcfall_ws/lcfall-ros2/config/livox/MID360_config.json:1) が利用されるため、コンテナ内の Livox 設定ファイルを手で編集していないか確認する
+- [config/livox/MID360_config.json](config/livox/MID360_config.json) が利用されるため、コンテナ内の Livox 設定ファイルを手で編集していないか確認する
 - `lcfall.launch.py` 起動時の host IP 警告メッセージを確認する
 
 ## パラメータ調整
 
-主要な設定は [src/lcfall_ros2/config/params.yaml](/home/user/lcfall_ws/lcfall-ros2/src/lcfall_ros2/config/params.yaml:1) にある。
-
-### 背景取得時の主な調整項目
-
-| パラメータ | デフォルト | 説明 |
-|---|---|---|
-| `capture_frames` | 200 | 蓄積フレーム数 |
-| `voxel_size` | 0.05 | ボクセル 1 辺 [m] |
-| `min_hits` | 5 | 背景とみなす最小出現回数 |
-| `roi_x_min` 〜 `roi_z_max` | 各種 | ROI 範囲 [m] |
-
-背景取得を一時的に上書きして実行する例:
-
-```bash
-docker compose run --rm \
-  background-capture \
-  ros2 launch lcfall_ros2 capture_background.launch.py \
-    capture_frames:=50 \
-    voxel_size:=0.08 \
-    min_hits:=15
-```
+主要な設定は [src/lcfall_ros2/config/params.yaml](src/lcfall_ros2/config/params.yaml) にある。
 
 ### 推論時の主な調整項目
 
 | パラメータ | デフォルト | 説明 |
 |---|---|---|
-| `background_model_path` | `/data/background/background_voxel_map.npz` | 背景モデルパス |
+| `roi_x_min` 〜 `roi_z_max` | 各種 | LiDAR ROI 範囲 [m] |
 | `inference_stride` | 10 | 推論間隔 |
 | `fall_decision_threshold` | 0.35 | 転倒判定しきい値 |
 | `camera_checkpoint_path` | `/data/checkpoints/camera/best_model.pth` | Camera 重み |

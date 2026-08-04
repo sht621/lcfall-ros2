@@ -1,23 +1,21 @@
 # =============================================================
-# 1. ベースイメージ
+# RTX 3050 Laptop GPU host environment
+# Ubuntu 22.04 / ROS 2 Humble / Python 3.10 / CUDA 12.1
 # =============================================================
-FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
+FROM nvidia/cuda:12.1.1-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV ROS_DISTRO=humble
 
-# Blackwell/RTX 5070 Ti 対応のため、PTX を含めて前方互換を確保
-ENV TORCH_CUDA_ARCH_LIST="9.0+PTX"
+# GeForce RTX 3050 Laptop GPU (Ampere, compute capability 8.6)
+ENV TORCH_CUDA_ARCH_LIST="8.6"
 ENV FORCE_CUDA=1
 ENV MMCV_WITH_OPS=1
 ENV MAX_JOBS=8
 
-# PyTorch 2.6+ の weights_only 既定値変更への保険
-ENV TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
-
 # =============================================================
-# 2. システム依存関係 & ROS 2 Humble
+# System dependencies and ROS 2 Humble
 # =============================================================
 RUN apt-get update && apt-get install -y \
     software-properties-common \
@@ -43,7 +41,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # =============================================================
-# 3. Livox-SDK2
+# Livox-SDK2
 # =============================================================
 WORKDIR /
 RUN git clone --depth 1 https://github.com/Livox-SDK/Livox-SDK2.git && \
@@ -55,7 +53,7 @@ RUN git clone --depth 1 https://github.com/Livox-SDK/Livox-SDK2.git && \
     cd / && rm -rf /Livox-SDK2
 
 # =============================================================
-# 4. livox_ros_driver2
+# livox_ros_driver2
 # =============================================================
 WORKDIR /root/ros2_ws
 RUN mkdir -p src && \
@@ -67,7 +65,7 @@ RUN mkdir -p src && \
     rm -rf build log
 
 # =============================================================
-# 5. system Python 競合パッケージを除去
+# Remove conflicting Ubuntu Python packages
 # =============================================================
 RUN apt-get update && \
     apt-get purge -y \
@@ -78,10 +76,10 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # =============================================================
-# 6. Python ビルド基盤
+# Python build prerequisites
 # =============================================================
 RUN pip3 install --upgrade pip && \
-    pip3 uninstall -y opencv-python opencv-python-headless opencv-contrib-python || true && \
+    pip3 uninstall -y opencv-python opencv-python-headless opencv-contrib-python opencv-contrib-python-headless || true && \
     pip3 install --no-cache-dir \
     "setuptools==60.2.0" \
     wheel \
@@ -91,41 +89,52 @@ RUN pip3 install --upgrade pip && \
     "numpy==1.26.4"
 
 # =============================================================
-# 7. PyTorch
+# Stable PyTorch CUDA 12.1 wheels
 # =============================================================
-RUN pip3 install --pre torch torchvision torchaudio "numpy==1.26.4" \
-    --index-url https://download.pytorch.org/whl/nightly/cu128
+RUN pip3 install --no-cache-dir \
+    torch==2.1.0 \
+    torchvision==0.16.0 \
+    torchaudio==2.1.0 \
+    --index-url https://download.pytorch.org/whl/cu121
 
 # =============================================================
-# 8. OpenMMLab
+# OpenMMLab versions used by the existing demo
 # =============================================================
-# mmcv インストール直前で setuptools / numpy を再固定
 RUN pip3 install --no-cache-dir --force-reinstall \
     "setuptools==60.2.0" \
-    "numpy<2" \
+    "numpy==1.26.4" \
     wheel \
     ninja \
     psutil \
     cython && \
     pip3 install --no-cache-dir mmengine==0.10.7 && \
-    pip3 install --no-build-isolation --no-cache-dir "mmcv==2.1.0" && \
-    pip3 install chumpy --no-build-isolation && \
-    pip3 install mmpose==1.3.1 mmdet==3.3.0 mmaction2==1.2.0 mmpretrain==1.2.0 && \
-    mkdir -p /usr/local/lib/python3.10/dist-packages/mmaction/models/localizers/drn && \
-    echo "class DRN: pass" > /usr/local/lib/python3.10/dist-packages/mmaction/models/localizers/drn/__init__.py && \
-    echo "class DRN: pass" > /usr/local/lib/python3.10/dist-packages/mmaction/models/localizers/drn/drn.py
+    pip3 install --no-build-isolation --no-cache-dir mmcv==2.1.0 && \
+    pip3 install --no-build-isolation --no-cache-dir chumpy && \
+    pip3 install --no-cache-dir \
+    mmpose==1.3.1 \
+    mmdet==3.3.0 \
+    mmaction2==1.2.0 \
+    mmpretrain==1.2.0 && \
+    MMACTION_SITE="$(python3 -c 'import site; print(site.getsitepackages()[0])')" && \
+    mkdir -p "${MMACTION_SITE}/mmaction/models/localizers/drn" && \
+    echo "class DRN: pass" > "${MMACTION_SITE}/mmaction/models/localizers/drn/__init__.py" && \
+    echo "class DRN: pass" > "${MMACTION_SITE}/mmaction/models/localizers/drn/drn.py"
 
-# =============================================================
-# 9. Python 追加依存
-# =============================================================
+# Keep one OpenCV wheel. The non-headless build is required by the existing
+# X11 visualization node and ROI tuner.
 RUN pip3 install --no-cache-dir \
     "numpy==1.26.4" \
-    "opencv-python-headless<4.10.0.84" \
-    "opencv-python<4.10.0.84" \
-    "opencv-contrib-python<4.10.0.84"
+    "opencv-contrib-python==4.9.0.80"
+
+# Keep the optional ROS middleware available without changing the Fast DDS
+# production selection configured by Compose.
+RUN --network=host \
+    apt-get update && apt-get install -y \
+    ros-humble-rmw-cyclonedds-cpp \
+    && rm -rf /var/lib/apt/lists/*
 
 # =============================================================
-# 10. ワークスペース設定
+# Workspace setup
 # =============================================================
 WORKDIR /root/ros2_ws
 RUN echo "source /opt/ros/humble/setup.bash" >> /root/.bashrc

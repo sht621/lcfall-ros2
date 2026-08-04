@@ -4,7 +4,7 @@
 /camera/image_raw と /livox/lidar を ApproximateTimeSynchronizer で同期し、
 各同期ペアに対して以下の 1 フレーム前処理を行う:
   - カメラ: 2D skeleton 抽出 (MMPoseInferencer: RTMDet-M + ViTPose-S)
-  - LiDAR:  座標変換 → ROI → ボクセル背景差分 → 256 点整形
+  - LiDAR:  座標変換 → ROI → 256 点整形
 
 結果を PreprocessedFrame として /preprocessed/frame に publish する。
 """
@@ -33,7 +33,6 @@ from lcfall_ros2.utils.lidar_preprocessing import (
     create_rotation_matrix,
     reshape_pointcloud,
 )
-from lcfall_ros2.utils.background_subtraction import BackgroundModel
 
 
 class SyncPreprocessNode(Node):
@@ -70,12 +69,6 @@ class SyncPreprocessNode(Node):
         self.declare_parameter("roi_y_max", 2.0)
         self.declare_parameter("roi_z_min", 0.1)
         self.declare_parameter("roi_z_max", 2.0)
-
-        # 背景モデル
-        self.declare_parameter(
-            "background_model_path",
-            "/data/background/background_voxel_map.npz",
-        )
 
         # 座標変換 (LiDAR センサ座標 → 部屋座標)
         self.declare_parameter("apply_coordinate_transform", True)
@@ -122,10 +115,6 @@ class SyncPreprocessNode(Node):
         sync_slop: float = (
             self.get_parameter("sync_slop").value
         )
-        bg_model_path: str = (
-            self.get_parameter("background_model_path").value
-        )
-
         self._roi_min: Tuple[float, float, float] = (
             self.get_parameter("roi_x_min").value,
             self.get_parameter("roi_y_min").value,
@@ -175,21 +164,6 @@ class SyncPreprocessNode(Node):
                 f"Reason: {self._skeleton_extractor.init_error}"
             )
             raise SystemExit("SkeletonExtractor is not available.")
-
-        # ==============================================================
-        # 背景モデル読み込み
-        # ==============================================================
-        self.get_logger().info(
-            f"Loading background model from {bg_model_path} ..."
-        )
-        try:
-            self._bg_model = BackgroundModel(bg_model_path)
-            self.get_logger().info("Background model loaded successfully.")
-        except FileNotFoundError as e:
-            self.get_logger().error(str(e))
-            raise SystemExit(
-                f"Background model not found: {bg_model_path}"
-            )
 
         # ==============================================================
         # CvBridge (Image → numpy 変換)
@@ -337,7 +311,7 @@ class SyncPreprocessNode(Node):
     ) -> Optional[NDArray[np.float32]]:
         """LiDAR 点群の 1 フレーム前処理.
 
-        PointCloud2 → numpy → (変換) → ROI → 背景差分 → 256 点整形 → flatten
+        PointCloud2 → numpy → (変換) → ROI → 256 点整形 → flatten
 
         Returns:
             (768,) float32 配列。エラー時は None。
@@ -357,9 +331,6 @@ class SyncPreprocessNode(Node):
 
             # ROI フィルタ
             points = apply_roi(points, self._roi_min, self._roi_max)
-
-            # ボクセル背景差分
-            points = self._bg_model.remove_background(points)
 
             # 256 点へ整形
             shaped = reshape_pointcloud(points)

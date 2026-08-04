@@ -6,9 +6,11 @@ LCFALL_MSGS_MARKER="${WORKSPACE_ROOT}/install/lcfall_msgs/share/lcfall_msgs/pack
 LCFALL_ROS2_MARKER="${WORKSPACE_ROOT}/install/lcfall_ros2/share/lcfall_ros2/package.xml"
 
 set +u
+# shellcheck disable=SC1091
 source /opt/ros/humble/setup.bash
 
 if [[ -f "${WORKSPACE_ROOT}/install/setup.bash" ]]; then
+  # shellcheck disable=SC1091
   source "${WORKSPACE_ROOT}/install/setup.bash"
 fi
 
@@ -22,6 +24,7 @@ if [[ "${SKIP_COLCON_BUILD:-0}" != "1" ]] && {
   colcon build --symlink-install --packages-select lcfall_msgs lcfall_ros2
 
   set +u
+  # shellcheck disable=SC1091
   source "${WORKSPACE_ROOT}/install/setup.bash"
   set -u
 fi

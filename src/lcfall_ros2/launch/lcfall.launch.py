@@ -93,8 +93,9 @@ def generate_launch_description():
     pkg_share = get_package_share_directory("lcfall_ros2")
     default_params_file = os.path.join(pkg_share, "config", "params.yaml")
     livox_pkg_share = get_package_share_directory("livox_ros_driver2")
-    default_livox_config_path = os.path.join(
-        livox_pkg_share, "config", "MID360_config.json"
+    default_livox_config_path = os.environ.get(
+        "LIVOX_CONFIG_PATH",
+        os.path.join(livox_pkg_share, "config", "MID360_config.json"),
     )
     _warn_if_livox_host_ip_missing(default_livox_config_path)
 

@@ -4,8 +4,7 @@
 
 # --------------------------------------------------------------
 # 全ノード共通設定 (/**)
-# ここで設定した値は sync_preprocess_node と capture_background_node
-# 等のすべてに統一的に適用され、パラメータのズレを完全に防止します。
+# ここで設定した値は各ノードへ統一的に適用されます。
 # --------------------------------------------------------------
 /**:
   ros__parameters:
@@ -14,27 +13,18 @@
     lidar_topic: "/livox/lidar"
 
     # ROI [m] - 実機環境に合わせて調整
-    roi_x_min: 1.5
-    roi_x_max: 3.8
-    roi_y_min: -1.0
-    roi_y_max: 1.0
-    roi_z_min: -0.80
-    roi_z_max: 1.0
+    roi_x_min: 0.93
+    roi_x_max: 3.19
+    roi_y_min: -0.46
+    roi_y_max: 0.72
+    roi_z_min: -0.38
+    roi_z_max: 1.25
 
     # 座標変換 (LiDAR センサ座標 → 部屋座標)
     apply_coordinate_transform: true
     lidar_roll: 1.1     # X軸回転 [deg]
     lidar_pitch: 27.8   # Y軸回転 [deg] (カメラマウント角度由来)
     lidar_yaw: 0.0      # Z軸回転 [deg]
-
-    # 背景モデル取得パラメータ (capture_background_node 用)
-    # 20秒間(200フレーム)スキャン, 5cmボクセル, 最低5ヒットで背景認定
-    capture_frames: 200
-    voxel_size: 0.05
-    min_hits: 5
-
-    # 背景モデルファイルパス
-    background_model_path: "/data/background/background_voxel_map.npz"
 
 # --------------------------------------------------------------
 # sync_preprocess_node 専用設定
