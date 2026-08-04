@@ -1,0 +1,27 @@
+name: lcfall-visualization
+
+services:
+  visualization:
+    build:
+      context: ..
+      dockerfile: visualization/Dockerfile
+    image: lcfall-ros2-visualization-image
+    network_mode: host
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - XAUTHORITY=/tmp/.Xauthority
+      - QT_X11_NO_MITSHM=1
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-43}
+      - ROS_LOCALHOST_ONLY=0
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ${XAUTHORITY_HOST:-/dev/null}:/tmp/.Xauthority:ro
+      - ../src/lcfall_ros2/config/params.yaml:/viewer_params.yaml:ro
+    command:
+      - ros2
+      - launch
+      - lcfall_ros2
+      - visualization.launch.py
+      - params_file:=/viewer_params.yaml
+      - use_compressed_image:=true

@@ -114,6 +114,12 @@ def generate_launch_description():
         description="Enable visualization node (default: true)",
     )
 
+    enable_remote_stream_arg = DeclareLaunchArgument(
+        "enable_remote_visualization_stream",
+        default_value="false",
+        description="Publish a reduced JPEG stream for a remote viewer",
+    )
+
     livox_config_arg = DeclareLaunchArgument(
         "livox_config_path",
         default_value=default_livox_config_path,
@@ -122,6 +128,9 @@ def generate_launch_description():
 
     params_file = LaunchConfiguration("params_file")
     enable_vis = LaunchConfiguration("enable_visualization")
+    enable_remote_stream = LaunchConfiguration(
+        "enable_remote_visualization_stream"
+    )
     livox_config_path = LaunchConfiguration("livox_config_path")
 
     # ------------------------------------------------------------------
@@ -205,9 +214,19 @@ def generate_launch_description():
         condition=IfCondition(enable_vis),
     )
 
+    remote_image_publisher = Node(
+        package="lcfall_ros2",
+        executable="remote_image_publisher_node",
+        name="remote_image_publisher_node",
+        parameters=[params_file],
+        output="screen",
+        condition=IfCondition(enable_remote_stream),
+    )
+
     return LaunchDescription([
         params_file_arg,
         enable_vis_arg,
+        enable_remote_stream_arg,
         livox_config_arg,
         # センサドライバ
         camera_node,
@@ -217,4 +236,5 @@ def generate_launch_description():
         inference,
         alert,
         visualization,
+        remote_image_publisher,
     ])

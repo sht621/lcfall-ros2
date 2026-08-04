@@ -7,6 +7,7 @@ CAMERA_CHECKPOINT_PATH="${CAMERA_CHECKPOINT_PATH:-/data/checkpoints/camera/best_
 LIDAR_CHECKPOINT_PATH="${LIDAR_CHECKPOINT_PATH:-/data/checkpoints/lidar/best_model.pth}"
 FUSION_CHECKPOINT_PATH="${FUSION_CHECKPOINT_PATH:-/data/checkpoints/fusion/best_model.pth}"
 ENABLE_VISUALIZATION="${ENABLE_VISUALIZATION:-true}"
+ENABLE_REMOTE_VISUALIZATION_STREAM="${ENABLE_REMOTE_VISUALIZATION_STREAM:-false}"
 
 if [[ ! -f "${LIVOX_CONFIG_PATH}" ]]; then
   echo "[app] Livox config not found: ${LIVOX_CONFIG_PATH}" >&2
@@ -35,4 +36,5 @@ fi
 exec ros2 launch lcfall_ros2 lcfall.launch.py \
   params_file:="${PARAMS_FILE}" \
   livox_config_path:="${LIVOX_CONFIG_PATH}" \
-  enable_visualization:="${ENABLE_VISUALIZATION}"
+  enable_visualization:="${ENABLE_VISUALIZATION}" \
+  enable_remote_visualization_stream:="${ENABLE_REMOTE_VISUALIZATION_STREAM}"

@@ -32,7 +32,7 @@ class LiDARInferenceNode(Node):
 
         self.declare_parameter("inference_stride", 10)
         self.declare_parameter("device", "cuda:0")
-        self.declare_parameter("fall_decision_threshold", 0.35)
+        self.declare_parameter("fall_decision_threshold", 0.5)
         self.declare_parameter(
             "lidar_checkpoint_path",
             "/data/checkpoints/lidar/best_model.pth",
@@ -104,7 +104,7 @@ class LiDARInferenceNode(Node):
             [f.pointcloud_frame for f in frames]
         )
         if np.allclose(pointcloud_seq, 0.0):
-            self._publish_result(header, 0, 0.0)
+            self._publish_result(header, False, 0.0)
             return
 
         normalized_pc = global_normalize_pointclouds(pointcloud_seq)
@@ -113,9 +113,9 @@ class LiDARInferenceNode(Node):
 
     def _infer(
         self, pointclouds: NDArray[np.float32]
-    ) -> tuple[int, float]:
+    ) -> tuple[bool, float]:
         if self._model is None:
-            return 0, 0.0
+            return False, 0.0
 
         import torch
 
@@ -126,16 +126,16 @@ class LiDARInferenceNode(Node):
             output = self._model(pc_tensor)
             prob = torch.softmax(output, dim=1)
             fall_prob = prob[0, 1].item()
-            prediction = 1 if fall_prob > self._fall_threshold else 0
+            prediction = fall_prob > self._fall_threshold
             confidence = fall_prob
         return prediction, confidence
 
     def _publish_result(
-        self, header, prediction: int, confidence: float
+        self, header, prediction: bool, confidence: float
     ) -> None:
         msg = FallDetectionResult()
         msg.header = header
-        msg.prediction = int(prediction)
+        msg.prediction = bool(prediction)
         msg.confidence = float(confidence)
         self._pub.publish(msg)
 

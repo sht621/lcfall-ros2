@@ -1,0 +1,20 @@
+services:
+  jazzy-fall-subscriber:
+    build:
+      context: ../..
+      dockerfile: validation/jazzy/Dockerfile
+      network: host
+    image: lcfall-ros2-jazzy-test
+    network_mode: host
+    ipc: host
+    environment:
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+      - ROS_DOMAIN_ID=43
+      - ROS_LOCALHOST_ONLY=0
+      - FASTRTPS_DEFAULT_PROFILES_FILE=/etc/fastdds/fastdds_wlo1.xml
+    volumes:
+      - ../../config/fastdds/fastdds_wlo1.xml:/etc/fastdds/fastdds_wlo1.xml:ro
+      - ./fall_subscriber.py:/jazzy_fall_subscriber.py:ro
+    init: true
+    stop_signal: SIGINT
+    restart: "no"

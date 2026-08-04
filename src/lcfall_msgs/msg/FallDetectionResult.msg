@@ -3,8 +3,8 @@
 
 std_msgs/Header header
 
-# 0: non-falling, 1: falling
-uint8 prediction
+# false: non-falling, true: falling
+bool prediction
 
 # 推論の確信度 [0.0, 1.0]
 float32 confidence

@@ -3,7 +3,7 @@
 
 /preprocessed/frame を subscribe し、48 フレームの RingBuffer で蓄積。
 inference_stride ごとに:
-  1. skeleton_2d → heatmap (17, 48, 56, 56)
+  1. skeleton_2d → heatmap (17, 48, 64, 64)
   2. pointcloud_frame → グローバル正規化 (48, 256, 3)
   3. CameraLiDARFusionModel で推論
   4. FallDetectionResult を /fall_detection/result に publish
@@ -59,7 +59,9 @@ class InferenceNode(Node):
         # ==============================================================
         self.declare_parameter("inference_stride", 10)
         self.declare_parameter("device", "cuda:0")
-        self.declare_parameter("fall_decision_threshold", 0.35)
+        self.declare_parameter("fall_decision_threshold", 0.5)
+        self.declare_parameter("image_width", 1280)
+        self.declare_parameter("image_height", 720)
 
         # モデルチェックポイントパス (デフォルト値を設定)
         self.declare_parameter("camera_config_path", "/root/ros2_ws/install/lcfall_ros2/share/lcfall_ros2/config/slowonly_r50_inference.py")
@@ -76,6 +78,8 @@ class InferenceNode(Node):
         self._fall_threshold: float = (
             self.get_parameter("fall_decision_threshold").value
         )
+        self._image_width: int = self.get_parameter("image_width").value
+        self._image_height: int = self.get_parameter("image_height").value
         self._camera_config_path: str = (
             self.get_parameter("camera_config_path").value
         )
@@ -127,7 +131,7 @@ class InferenceNode(Node):
     def _load_model(self):
         """CameraLiDARFusionModel をロード.
 
-        3 つのチェックポイント (Camera, LiDAR, FusionHead) が
+        3 つのチェックポイント (Camera, LiDAR, Fusion全体) が
         すべて設定されている場合のみモデルをロードする。
         いずれかが未設定の場合はダミー推論にフォールバック。
 
@@ -246,42 +250,120 @@ class InferenceNode(Node):
             [f.pointcloud_frame for f in frames]
         )
 
-        # heatmap 生成: (17, 48, 56, 56)
-        heatmaps = generate_heatmaps(skeleton_seq)
+        # 学習時と同じPoseCompact済みheatmapを生成: (17, 48, 64, 64)
+        heatmaps = generate_heatmaps(
+            skeleton_seq,
+            image_width=self._image_width,
+            image_height=self._image_height,
+        )
 
         # グローバル正規化: (48, 256, 3)
         normalized_pc = global_normalize_pointclouds(pointcloud_seq)
 
-        # 推論実行
-        prediction, confidence = self._infer(heatmaps, normalized_pc)
+        # 学習モデルと実機姿勢判定を併用する。学習データとの環境差で
+        # fusion出力が過度にNORMALへ偏る場合も、継続した横臥姿勢を検知する。
+        _, learned_confidence = self._infer(heatmaps, normalized_pc)
+        posture_confidence = self._posture_fall_probability(skeleton_seq)
+        confidence = max(learned_confidence, posture_confidence)
+        prediction = confidence > self._fall_threshold
 
         # 結果 publish
         result_msg = FallDetectionResult()
         result_msg.header = header
-        result_msg.prediction = int(prediction)
+        result_msg.prediction = bool(prediction)
         result_msg.confidence = float(confidence)
         self._pub.publish(result_msg)
 
-        label = "FALLING" if prediction == 1 else "NORMAL"
+        label = "FALLING" if prediction else "NORMAL"
         self.get_logger().info(
             f"Inference result: {label} "
-            f"(confidence={confidence:.3f})"
+            f"(confidence={confidence:.6f}, "
+            f"model={learned_confidence:.6f}, "
+            f"posture={posture_confidence:.6f})"
         )
+
+    @staticmethod
+    def _posture_fall_probability(
+        skeleton_sequence: NDArray[np.float32],
+    ) -> float:
+        """体幹角度と骨格BBox縦横比から継続した横臥姿勢を計算する."""
+        frame_scores: list[float] = []
+        # 約2秒分に限定し、過去の転倒姿勢を長く保持しない。
+        for frame in skeleton_sequence[-12:]:
+            keypoints = frame.reshape(17, 3)
+
+            # COCO keypoints: left/right shoulder=5/6, left/right hip=11/12。
+            # 腕や脚を含む全身の外接幅は、腕を横に広げただけでも横長に
+            # なるため使わない。両肩中点から両腰中点への体幹軸だけを見る。
+            torso_indices = np.asarray([5, 6, 11, 12])
+            torso = keypoints[torso_indices]
+            if np.any(torso[:, 2] < 0.4):
+                frame_scores.append(0.0)
+                continue
+
+            shoulder_midpoint = torso[0:2, :2].mean(axis=0)
+            hip_midpoint = torso[2:4, :2].mean(axis=0)
+            torso_vector = shoulder_midpoint - hip_midpoint
+            horizontal = abs(float(torso_vector[0]))
+            vertical = abs(float(torso_vector[1]))
+            torso_length = float(np.hypot(horizontal, vertical))
+            if torso_length < 1.0e-3:
+                frame_scores.append(0.0)
+                continue
+
+            angle_deg = float(np.degrees(np.arctan2(horizontal, vertical)))
+
+            # 実機の通常姿勢で観測した揺れ（おおむね0〜22度）は低く抑え、
+            # 転倒方向へ傾くと明確に上がるS字カーブにする。
+            # 10度以下=0、35度=0.5、60度以上=1。
+            normalized_angle = float(
+                np.clip((angle_deg - 10.0) / 50.0, 0.0, 1.0)
+            )
+            score = normalized_angle * normalized_angle * (
+                3.0 - 2.0 * normalized_angle
+            )
+
+            # 物を拾う動作では体幹だけが水平に近づく一方、脚を含む骨格BBoxは
+            # 縦長のままになる。逆に腕を広げるとBBoxだけが横長になる。
+            # 両条件を満たした場合だけ高くなるよう、小さい側を採用する。
+            valid = keypoints[:, 2] >= 0.4
+            if int(valid.sum()) < 8:
+                frame_scores.append(0.0)
+                continue
+
+            xy = keypoints[valid, :2]
+            bbox_width = float(np.ptp(xy[:, 0]))
+            bbox_height = float(np.ptp(xy[:, 1]))
+            if bbox_width < 1.0e-3:
+                frame_scores.append(0.0)
+                continue
+
+            height_width_ratio = bbox_height / bbox_width
+            # H/W >= 1.25: 縦長で0、H/W <= 0.60: 横長で1。
+            bbox_score = float(
+                np.clip((1.25 - height_width_ratio) / 0.65, 0.0, 1.0)
+            )
+            frame_scores.append(min(score, bbox_score))
+
+        if len(frame_scores) < 2:
+            return 0.0
+        # 2番目に高い値を使い、単発のキーポイント崩れでは発火させない。
+        return float(np.partition(np.asarray(frame_scores), -2)[-2])
 
     def _infer(
         self,
         heatmaps: NDArray[np.float32],
         pointclouds: NDArray[np.float32],
-    ) -> tuple[int, float]:
+    ) -> tuple[bool, float]:
         """融合モデルで推論.
 
         Args:
-            heatmaps: (17, 48, 56, 56) heatmap テンソル。
+            heatmaps: (17, 48, 64, 64) heatmap テンソル。
             pointclouds: (48, 256, 3) 正規化済み点群。
 
         Returns:
             (prediction, confidence) タプル。
-            prediction: 0=non-falling, 1=falling。
+            prediction: false=non-falling, true=falling。
             confidence: [0.0, 1.0]。
         """
         if self._model is not None:
@@ -293,11 +375,11 @@ class InferenceNode(Node):
         self,
         heatmaps: NDArray[np.float32],
         pointclouds: NDArray[np.float32],
-    ) -> tuple[int, float]:
+    ) -> tuple[bool, float]:
         """CameraLiDARFusionModel による推論.
 
         Args:
-            heatmaps: (17, 48, 56, 56)
+            heatmaps: (17, 48, 64, 64)
             pointclouds: (48, 256, 3)
 
         Returns:
@@ -306,7 +388,7 @@ class InferenceNode(Node):
         import torch
 
         # numpy → torch tensor, バッチ次元追加
-        # heatmap: (17, 48, 56, 56) → (1, 17, 48, 56, 56)
+        # heatmap: (17, 48, 64, 64) → (1, 17, 48, 64, 64)
         heatmap_tensor = torch.from_numpy(heatmaps).unsqueeze(0).float()
         # pointcloud: (48, 256, 3) → (1, 48, 256, 3)
         pc_tensor = torch.from_numpy(pointclouds).unsqueeze(0).float()
@@ -321,7 +403,7 @@ class InferenceNode(Node):
 
             # 学習時のラベル定義: class 0 = non-falling, class 1 = falling
             fall_prob = prob[0, 1].item()
-            prediction = 1 if fall_prob > self._fall_threshold else 0
+            prediction = fall_prob > self._fall_threshold
             confidence = fall_prob
 
         return prediction, confidence
@@ -331,19 +413,19 @@ class InferenceNode(Node):
         self,
         heatmaps: NDArray[np.float32],
         pointclouds: NDArray[np.float32],
-    ) -> tuple[int, float]:
+    ) -> tuple[bool, float]:
         """ダミー推論 (開発・テスト用).
 
         常に non-falling を返す。
 
         Args:
-            heatmaps: (17, 48, 56, 56)
+            heatmaps: (17, 48, 64, 64)
             pointclouds: (48, 256, 3)
 
         Returns:
-            (0, 0.0) = non-falling
+            (False, 0.0) = non-falling
         """
-        return 0, 0.0
+        return False, 0.0
 
 
 def main(args=None) -> None:

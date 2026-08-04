@@ -1,7 +1,7 @@
 """Skeleton 座標から heatmap を生成するユーティリティ.
 
 48 フレーム分の skeleton_2d を蓄積した後、
-(17, T, 56, 56) の heatmap 列を生成する。
+(17, T, 64, 64) の heatmap 列を生成する。
 
 heatmap 生成には mmpose の MSRAHeatmap codec を使用する。
 mmpose が利用できない場合は同等のフォールバック実装を使用する。
@@ -12,8 +12,8 @@ from __future__ import annotations
 import numpy as np
 from numpy.typing import NDArray
 
-# Heatmap 解像度 (ViTPose-S のデフォルト出力解像度に合わせる)
-HEATMAP_SIZE: int = 56
+# 学習時の検証パイプラインと同じ heatmap 解像度
+HEATMAP_SIZE: int = 64
 
 # COCO 17 keypoints
 NUM_KEYPOINTS: int = 17
@@ -22,7 +22,17 @@ KEYPOINT_DIMS: int = 3  # (x_norm, y_norm, score)
 # mmpose MSRAHeatmap デフォルト設定
 # input_size は正規化座標 [0,1] → heatmap_size にスケーリングするため
 # heatmap_size と同じ値を使用する
-DEFAULT_SIGMA: float = 2.0
+DEFAULT_SIGMA: float = 0.6
+
+try:
+    from mmaction.datasets.transforms import (
+        GeneratePoseTarget,
+        PoseCompact,
+        Resize,
+    )
+    HAS_MMACTION_TRANSFORMS = True
+except ImportError:
+    HAS_MMACTION_TRANSFORMS = False
 
 # mmpose codec の利用可否
 try:
@@ -36,6 +46,8 @@ def generate_heatmaps(
     skeleton_sequence: NDArray[np.float32],
     heatmap_size: int = HEATMAP_SIZE,
     sigma: float = DEFAULT_SIGMA,
+    image_width: int = 1280,
+    image_height: int = 720,
 ) -> NDArray[np.float32]:
     """skeleton_2d 列から heatmap テンソルを生成.
 
@@ -46,13 +58,23 @@ def generate_heatmaps(
     Args:
         skeleton_sequence: (T, 51) の skeleton 列。
             各行は (x_norm, y_norm, score) × 17 keypoints。
-        heatmap_size: heatmap の縦横ピクセル数 (デフォルト 56)。
-        sigma: Gaussian の標準偏差 (ピクセル単位, デフォルト 2.0)。
+        heatmap_size: heatmap の縦横ピクセル数 (デフォルト 64)。
+        sigma: Gaussian の標準偏差 (ピクセル単位, デフォルト 0.6)。
+        image_width: skeleton抽出元の画像幅。
+        image_height: skeleton抽出元の画像高さ。
 
     Returns:
         (17, T, heatmap_size, heatmap_size) float32 heatmap テンソル。
         検出失敗フレーム (全ゼロ skeleton) の heatmap もゼロになる。
     """
+    if HAS_MMACTION_TRANSFORMS:
+        return _generate_heatmaps_training_pipeline(
+            skeleton_sequence,
+            heatmap_size,
+            sigma,
+            image_width,
+            image_height,
+        )
     if HAS_MMPOSE_CODEC:
         return _generate_heatmaps_mmpose(
             skeleton_sequence, heatmap_size, sigma
@@ -61,6 +83,43 @@ def generate_heatmaps(
         return _generate_heatmaps_fallback(
             skeleton_sequence, heatmap_size, sigma
         )
+
+
+def _generate_heatmaps_training_pipeline(
+    skeleton_sequence: NDArray[np.float32],
+    heatmap_size: int,
+    sigma: float,
+    image_width: int,
+    image_height: int,
+) -> NDArray[np.float32]:
+    """学習時の検証pipelineと同じ変換でheatmapを生成する."""
+    frames = skeleton_sequence.reshape(-1, NUM_KEYPOINTS, KEYPOINT_DIMS)
+    keypoint = np.empty((1, frames.shape[0], NUM_KEYPOINTS, 2), dtype=np.float32)
+    keypoint[0, :, :, 0] = frames[:, :, 0] * float(image_width)
+    keypoint[0, :, :, 1] = frames[:, :, 1] * float(image_height)
+    keypoint_score = frames[None, :, :, 2].astype(np.float32, copy=False)
+
+    results = {
+        "keypoint": keypoint,
+        "keypoint_score": keypoint_score,
+        "img_shape": (image_height, image_width),
+        "original_shape": (image_height, image_width),
+    }
+    transforms = (
+        PoseCompact(allow_imgpad=True, hw_ratio=1.0),
+        Resize(scale=(heatmap_size, heatmap_size), keep_ratio=False),
+        GeneratePoseTarget(
+            sigma=sigma,
+            use_score=True,
+            with_kp=True,
+            with_limb=False,
+        ),
+    )
+    for transform in transforms:
+        results = transform(results)
+
+    # GeneratePoseTarget: (T, C, H, W) -> model input: (C, T, H, W)
+    return np.asarray(results["imgs"], dtype=np.float32).transpose(1, 0, 2, 3)
 
 
 # ==================================================================

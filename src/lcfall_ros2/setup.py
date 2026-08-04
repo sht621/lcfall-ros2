@@ -37,6 +37,7 @@ setup(
             'lidar_inference_node = lcfall_ros2.lidar_inference_node:main',
             'alert_node = lcfall_ros2.alert_node:main',
             'visualization_node = lcfall_ros2.visualization_node:main',
+            'remote_image_publisher_node = lcfall_ros2.remote_image_publisher_node:main',
         ],
     },
 )

@@ -37,7 +37,9 @@ class CameraInferenceNode(Node):
             "camera_checkpoint_path",
             "/data/checkpoints/camera/best_model.pth",
         )
-        self.declare_parameter("fall_decision_threshold", 0.35)
+        self.declare_parameter("fall_decision_threshold", 0.5)
+        self.declare_parameter("image_width", 1280)
+        self.declare_parameter("image_height", 720)
         self.declare_parameter("camera_min_keypoint_score", 0.3)
         self.declare_parameter("camera_min_keypoints_per_frame", 5)
         self.declare_parameter("camera_min_valid_frames", 3)
@@ -51,6 +53,8 @@ class CameraInferenceNode(Node):
         self._fall_threshold = self.get_parameter(
             "fall_decision_threshold"
         ).value
+        self._image_width = self.get_parameter("image_width").value
+        self._image_height = self.get_parameter("image_height").value
         self._min_keypoint_score = self.get_parameter(
             "camera_min_keypoint_score"
         ).value
@@ -116,10 +120,14 @@ class CameraInferenceNode(Node):
 
         skeleton_seq = skeleton_list_to_array([f.skeleton_2d for f in frames])
         if not self._has_person_signal(skeleton_seq):
-            self._publish_result(header, 0, 0.0)
+            self._publish_result(header, False, 0.0)
             return
 
-        heatmaps = generate_heatmaps(skeleton_seq)
+        heatmaps = generate_heatmaps(
+            skeleton_seq,
+            image_width=self._image_width,
+            image_height=self._image_height,
+        )
         prediction, confidence = self._infer(heatmaps)
         self._publish_result(header, prediction, confidence)
 
@@ -136,9 +144,9 @@ class CameraInferenceNode(Node):
 
     def _infer(
         self, heatmaps: NDArray[np.float32]
-    ) -> tuple[int, float]:
+    ) -> tuple[bool, float]:
         if self._model is None:
-            return 0, 0.0
+            return False, 0.0
 
         import torch
 
@@ -152,16 +160,16 @@ class CameraInferenceNode(Node):
             output = self._model.cls_head(features)
             prob = torch.softmax(output, dim=1)
             fall_prob = prob[0, 1].item()
-            prediction = 1 if fall_prob > self._fall_threshold else 0
+            prediction = fall_prob > self._fall_threshold
             confidence = fall_prob
         return prediction, confidence
 
     def _publish_result(
-        self, header, prediction: int, confidence: float
+        self, header, prediction: bool, confidence: float
     ) -> None:
         msg = FallDetectionResult()
         msg.header = header
-        msg.prediction = int(prediction)
+        msg.prediction = bool(prediction)
         msg.confidence = float(confidence)
         self._pub.publish(msg)
 

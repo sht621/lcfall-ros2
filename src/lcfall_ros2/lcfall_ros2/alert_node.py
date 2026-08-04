@@ -2,7 +2,7 @@
 """alert_node: 転倒検知結果に基づくアラート通知.
 
 /fall_detection/result を subscribe し、
-prediction == 1 (falling) のとき notify_fall() を呼び出す。
+prediction is true (falling) のとき notify_fall() を呼び出す。
 publish はしない。
 """
 
@@ -40,10 +40,10 @@ class AlertNode(Node):
     def _result_callback(self, msg: FallDetectionResult) -> None:
         """転倒検知結果の処理.
 
-        prediction == 1 → notify_fall()
-        prediction == 0 → 何もしない
+        prediction is true → notify_fall()
+        prediction is false → 何もしない
         """
-        if msg.prediction == 1:
+        if msg.prediction:
             self.notify_fall(msg)
 
     # ==================================================================

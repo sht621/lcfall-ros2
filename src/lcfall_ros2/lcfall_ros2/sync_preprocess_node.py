@@ -181,8 +181,10 @@ class SyncPreprocessNode(Node):
         # ==============================================================
         # ROS 通信
         # ==============================================================
+        # Skeleton推論がセンサ周期より遅い場合も古いフレームを蓄積せず、
+        # 常に最新の画像・点群へ追従する。
         qos = QoSProfile(
-            depth=10,
+            depth=1,
             reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
         )

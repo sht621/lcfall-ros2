@@ -131,8 +131,8 @@ class CameraLiDARFusionModel(nn.Module):
             dropout=dropout,
         )
 
-        # Fusion Head の重みをロード
-        self._load_fusion_head(fusion_checkpoint_path)
+        # Fusion学習後のCamera/LiDAR/Fusion Head全体の重みをロード
+        self._load_fusion_checkpoint(fusion_checkpoint_path)
 
         # バックボーンを固定（推論時はすべて固定）
         self._freeze_all()
@@ -197,8 +197,8 @@ class CameraLiDARFusionModel(nn.Module):
 
         return model
 
-    def _load_fusion_head(self, checkpoint_path: str) -> None:
-        """Fusion Head の重みをロード."""
+    def _load_fusion_checkpoint(self, checkpoint_path: str) -> None:
+        """Fusion学習済みcheckpointからモデル全体の重みをロード."""
         checkpoint = torch.load(
             checkpoint_path, map_location=self._device_str, weights_only=False
         )
@@ -216,18 +216,13 @@ class CameraLiDARFusionModel(nn.Module):
                 for k, v in state_dict.items()
             }
 
-        # fusion_head. プレフィックスのキーのみ抽出
-        fusion_keys = {
-            k.replace("fusion_head.", ""): v
-            for k, v in state_dict.items()
-            if k.startswith("fusion_head.")
-        }
-
-        if fusion_keys:
-            self.fusion_head.load_state_dict(fusion_keys, strict=False)
-        else:
-            # プレフィックスなしの場合はそのままロード
-            self.fusion_head.load_state_dict(state_dict, strict=False)
+        incompatible = self.load_state_dict(state_dict, strict=False)
+        if incompatible.missing_keys or incompatible.unexpected_keys:
+            raise RuntimeError(
+                "Fusion checkpoint does not match model: "
+                f"missing={incompatible.missing_keys}, "
+                f"unexpected={incompatible.unexpected_keys}"
+            )
 
     def _freeze_all(self) -> None:
         """推論時: すべてのパラメータを固定."""

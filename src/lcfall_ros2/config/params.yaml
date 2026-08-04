@@ -14,10 +14,10 @@
 
     # ROI [m] - 実機環境に合わせて調整
     roi_x_min: 0.93
-    roi_x_max: 3.19
+    roi_x_max: 2.92
     roi_y_min: -0.46
     roi_y_max: 0.72
-    roi_z_min: -0.38
+    roi_z_min: -0.32
     roi_z_max: 1.25
 
     # 座標変換 (LiDAR センサ座標 → 部屋座標)
@@ -42,17 +42,31 @@ sync_preprocess_node:
     person_min_keypoints: 6
 
     # 同期
-    sync_queue_size: 10
+    # 古い同期ペアを溜めず、低遅延を優先する
+    sync_queue_size: 2
     sync_slop: 0.05
+
+# --------------------------------------------------------------
+# 別PC可視化用JPEG配信（明示的に有効化した場合だけ起動）
+# --------------------------------------------------------------
+remote_image_publisher_node:
+  ros__parameters:
+    input_topic: "/camera/image_raw"
+    output_topic: "/camera/visualization/compressed"
+    output_width: 640
+    output_height: 360
+    publish_fps: 10.0
+    jpeg_quality: 70
 
 # --------------------------------------------------------------
 # inference_node
 # --------------------------------------------------------------
 inference_node:
   ros__parameters:
+    # 同期後フレームの設計レート 10 Hz に対して約1秒ごと
     inference_stride: 10
     device: "cuda:0"
-    fall_decision_threshold: 0.35
+    fall_decision_threshold: 0.5
 
     # PoseC3D (カメラ) 設定・チェックポイント
     camera_config_path: "/root/ros2_ws/install/lcfall_ros2/share/lcfall_ros2/config/slowonly_r50_inference.py"
@@ -70,9 +84,13 @@ inference_node:
 visualization_node:
   ros__parameters:
     camera_topic: "/camera/image_raw"
-    lidar_topic: "/livox/lidar"
+    compressed_camera_topic: "/camera/visualization/compressed"
+    use_compressed_image: false
+    preprocessed_topic: "/preprocessed/frame"
+    result_topic: "/fall_detection/result"
     image_width: 1280
     image_height: 720
-    window_name: "LCFall ROS2 Demo"
+    window_name: "LCFall ROS 2 転倒検知"
     window_width: 1600
     window_height: 900
+    display_fps: 15.0

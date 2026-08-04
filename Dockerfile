@@ -27,6 +27,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     libgl1-mesa-glx \
     libglib2.0-0 \
+    fonts-noto-cjk \
     python3-pip \
     && add-apt-repository universe \
     && curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg \
@@ -124,6 +125,7 @@ RUN pip3 install --no-cache-dir --force-reinstall \
 # X11 visualization node and ROI tuner.
 RUN pip3 install --no-cache-dir \
     "numpy==1.26.4" \
+    "Pillow==10.2.0" \
     "opencv-contrib-python==4.9.0.80"
 
 # Keep the optional ROS middleware available without changing the Fast DDS

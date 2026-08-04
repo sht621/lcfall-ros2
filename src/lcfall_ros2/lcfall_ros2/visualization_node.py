@@ -6,13 +6,15 @@
   右: 点群の正面投影 (緑)
 
 転倒検知結果:
-  - prediction == 1: FALLING を赤文字で表示
+  - prediction is true: FALLING を赤文字で表示
   - 48 フレーム蓄積前: Waiting for 48 frames + バッファ数表示
 """
 
 from __future__ import annotations
 
 from collections import deque
+from functools import lru_cache
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -21,10 +23,11 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 
-from sensor_msgs.msg import Image, PointCloud2
+from sensor_msgs.msg import CompressedImage, Image
 
 from lcfall_msgs.msg import FallDetectionResult, PreprocessedFrame
-from lcfall_ros2.utils.lidar_preprocessing import pointcloud2_to_numpy
+from PIL import Image as PILImage
+from PIL import ImageDraw, ImageFont
 
 try:
     import cv2
@@ -70,12 +73,18 @@ COLOR_TEXT_MUTED = (170, 170, 170)
 COLOR_GRAPH_LINE = (80, 220, 255)
 COLOR_GRAPH_FILL = (40, 110, 140)
 COLOR_GRAPH_ALERT = (0, 90, 220)
+COLOR_GRAPH_ALERT_FILL = (20, 45, 150)
+COLOR_GRAPH_ALERT_LINE = (0, 0, 255)
 
 # skeleton 描画しきい値
 SKELETON_SCORE_THRESHOLD = 0.3
 GRID_STEP_METERS = 0.5
 PROB_HISTORY_SIZE = 120
 BOTTOM_BAR_HEIGHT = 150
+JAPANESE_FONT_CANDIDATES = (
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+)
 
 
 class VisualizationNode(Node):
@@ -94,12 +103,18 @@ class VisualizationNode(Node):
         # パラメータ
         # ==============================================================
         self.declare_parameter("camera_topic", "/camera/image_raw")
-        self.declare_parameter("lidar_topic", "/livox/lidar")
+        self.declare_parameter(
+            "compressed_camera_topic", "/camera/visualization/compressed"
+        )
+        self.declare_parameter("use_compressed_image", False)
+        self.declare_parameter("preprocessed_topic", "/preprocessed/frame")
+        self.declare_parameter("result_topic", "/fall_detection/result")
         self.declare_parameter("image_width", 1280)
         self.declare_parameter("image_height", 720)
-        self.declare_parameter("window_name", "LCFall ROS2 Demo")
+        self.declare_parameter("window_name", "LCFall ROS 2 転倒検知")
         self.declare_parameter("window_width", 1600)
         self.declare_parameter("window_height", 900)
+        self.declare_parameter("display_fps", 15.0)
         self.declare_parameter("roi_x_min", 0.0)
         self.declare_parameter("roi_x_max", 4.0)
         self.declare_parameter("roi_y_min", -2.0)
@@ -108,12 +123,26 @@ class VisualizationNode(Node):
         self.declare_parameter("roi_z_max", 1.0)
 
         camera_topic: str = self.get_parameter("camera_topic").value
-        lidar_topic: str = self.get_parameter("lidar_topic").value
+        compressed_camera_topic: str = self.get_parameter(
+            "compressed_camera_topic"
+        ).value
+        use_compressed_image: bool = bool(
+            self.get_parameter("use_compressed_image").value
+        )
+        preprocessed_topic: str = self.get_parameter(
+            "preprocessed_topic"
+        ).value
+        result_topic: str = self.get_parameter("result_topic").value
         self._image_width: int = self.get_parameter("image_width").value
         self._image_height: int = self.get_parameter("image_height").value
         self._window_name: str = self.get_parameter("window_name").value
         self._window_width: int = self.get_parameter("window_width").value
         self._window_height: int = self.get_parameter("window_height").value
+        self._display_fps: float = float(
+            self.get_parameter("display_fps").value
+        )
+        if self._display_fps <= 0.0:
+            raise ValueError("display_fps must be greater than zero")
         self._roi_min = np.array([
             self.get_parameter("roi_x_min").value,
             self.get_parameter("roi_y_min").value,
@@ -129,13 +158,24 @@ class VisualizationNode(Node):
         # 状態変数
         # ==============================================================
         self._latest_image: Optional[NDArray[np.uint8]] = None
-        self._latest_points: Optional[NDArray[np.float32]] = None
         self._latest_result: Optional[FallDetectionResult] = None
         self._latest_skeleton: Optional[NDArray[np.float32]] = None
         self._latest_preprocessed_pc: Optional[NDArray[np.float32]] = None
         self._frame_count: int = 0
         self._prob_history: deque[float] = deque(maxlen=PROB_HISTORY_SIZE)
         self._bridge = CvBridge() if HAS_CVBRIDGE else None
+        self._font_path = next(
+            (
+                path
+                for path in JAPANESE_FONT_CANDIDATES
+                if Path(path).is_file()
+            ),
+            "",
+        )
+        if not self._font_path:
+            raise RuntimeError(
+                "Japanese font not found. Install fonts-noto-cjk."
+            )
         cv2.namedWindow(self._window_name, cv2.WINDOW_NORMAL)
         cv2.resizeWindow(
             self._window_name,
@@ -152,30 +192,43 @@ class VisualizationNode(Node):
             history=HistoryPolicy.KEEP_LAST,
         )
 
-        self.create_subscription(
-            Image, camera_topic, self._image_callback, qos
-        )
-        self.create_subscription(
-            PointCloud2, lidar_topic, self._lidar_callback, qos
-        )
+        if use_compressed_image:
+            self.create_subscription(
+                CompressedImage,
+                compressed_camera_topic,
+                self._compressed_image_callback,
+                qos,
+            )
+            self.get_logger().info(
+                f"Using compressed camera topic: {compressed_camera_topic}"
+            )
+        else:
+            self.create_subscription(
+                Image, camera_topic, self._image_callback, qos
+            )
+            self.get_logger().info(
+                f"Using raw camera topic: {camera_topic}"
+            )
         self.create_subscription(
             FallDetectionResult,
-            "/fall_detection/result",
+            result_topic,
             self._result_callback,
             10,
         )
         # 前処理済みフレーム (skeleton + 前景点群)
         self.create_subscription(
             PreprocessedFrame,
-            "/preprocessed/frame",
+            preprocessed_topic,
             self._preprocessed_callback,
             10,
         )
 
-        # 描画タイマー (30 FPS)
-        self.create_timer(1.0 / 30.0, self._draw)
+        # 描画周期のみを変更する。カメラ取得・前処理・推論周期には影響しない。
+        self.create_timer(1.0 / self._display_fps, self._draw)
 
-        self.get_logger().info("VisualizationNode initialized.")
+        self.get_logger().info(
+            f"VisualizationNode initialized (display_fps={self._display_fps:g})."
+        )
 
     # ==================================================================
     # コールバック
@@ -200,13 +253,17 @@ class VisualizationNode(Node):
                 throttle_duration_sec=5.0,
             )
 
-    def _lidar_callback(self, msg: PointCloud2) -> None:
-        """LiDAR 生点群を更新 (正面投影用)."""
+    def _compressed_image_callback(self, msg: CompressedImage) -> None:
+        """別PC用JPEG画像を復号して更新."""
         try:
-            self._latest_points = pointcloud2_to_numpy(msg)
+            encoded = np.frombuffer(msg.data, dtype=np.uint8)
+            image = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
+            if image is None:
+                raise ValueError("cv2.imdecode returned None")
+            self._latest_image = image
         except Exception as e:
             self.get_logger().error(
-                f"PointCloud2 read error: {e}",
+                f"Compressed image conversion error: {e}",
                 throttle_duration_sec=5.0,
             )
 
@@ -228,6 +285,53 @@ class VisualizationNode(Node):
     # ==================================================================
     # 描画
     # ==================================================================
+
+    @lru_cache(maxsize=32)
+    def _font(self, size: int) -> ImageFont.FreeTypeFont:
+        """指定サイズの日本語フォントを返す."""
+        return ImageFont.truetype(self._font_path, size)
+
+    @lru_cache(maxsize=256)
+    def _text_mask(self, text: str, size: int) -> NDArray[np.uint8]:
+        """日本語テキストのアンチエイリアス済みマスクを生成する."""
+        font = self._font(size)
+        bbox = font.getbbox(text)
+        width = max(1, bbox[2] - bbox[0])
+        height = max(1, bbox[3] - bbox[1])
+        mask_image = PILImage.new("L", (width, height), 0)
+        draw = ImageDraw.Draw(mask_image)
+        draw.text((-bbox[0], -bbox[1]), text, font=font, fill=255)
+        return np.asarray(mask_image, dtype=np.uint8)
+
+    def _put_text(
+        self,
+        image: NDArray[np.uint8],
+        text: str,
+        position: tuple[int, int],
+        size: int,
+        color: tuple[int, int, int],
+    ) -> tuple[int, int]:
+        """OpenCVのBGR画像へ日本語テキストを描画する."""
+        mask = self._text_mask(text, size)
+        x, y = position
+        image_height, image_width = image.shape[:2]
+        x1 = max(0, x)
+        y1 = max(0, y)
+        x2 = min(image_width, x + mask.shape[1])
+        y2 = min(image_height, y + mask.shape[0])
+        if x1 >= x2 or y1 >= y2:
+            return mask.shape[1], mask.shape[0]
+
+        mask_region = mask[
+            y1 - y:y2 - y,
+            x1 - x:x2 - x,
+        ].astype(np.float32)[:, :, None] / 255.0
+        image_region = image[y1:y2, x1:x2].astype(np.float32)
+        color_array = np.asarray(color, dtype=np.float32)
+        image[y1:y2, x1:x2] = (
+            image_region * (1.0 - mask_region) + color_array * mask_region
+        ).astype(np.uint8)
+        return mask.shape[1], mask.shape[0]
 
     def _draw(self) -> None:
         """1 ウィンドウ左右 2 画面を描画."""
@@ -279,35 +383,81 @@ class VisualizationNode(Node):
 
     def _draw_camera_panel(self) -> NDArray[np.uint8]:
         """左画面: カメラ画像 + skeleton overlay."""
+        panel = np.full(
+            (VIS_HEIGHT, VIS_WIDTH, 3), COLOR_BG, dtype=np.uint8
+        )
+        x0, y0 = 18, 18
+        width, height = VIS_WIDTH - 36, VIS_HEIGHT - 36
+        view = panel[y0:y0 + height, x0:x0 + width]
+
         if self._latest_image is not None:
-            panel = cv2.resize(
-                self._latest_image, (VIS_WIDTH, VIS_HEIGHT)
+            view[:] = cv2.resize(
+                self._latest_image, (width, height)
             )
         else:
-            panel = np.full(
-                (VIS_HEIGHT, VIS_WIDTH, 3), COLOR_BG, dtype=np.uint8
-            )
-            cv2.putText(
-                panel, "No Camera", (VIS_WIDTH // 4, VIS_HEIGHT // 2),
-                cv2.FONT_HERSHEY_SIMPLEX, 1.0, COLOR_WHITE, 2,
+            view[:] = (28, 28, 28)
+            self._put_text(
+                view,
+                "カメラ映像なし",
+                (width // 3, height // 2),
+                28,
+                COLOR_WHITE,
             )
 
         # skeleton overlay
         if self._latest_skeleton is not None:
-            self._draw_skeleton_overlay(panel, self._latest_skeleton)
+            self._draw_skeleton_overlay(view, self._latest_skeleton)
             if not np.any(self._latest_skeleton[2::3] > SKELETON_SCORE_THRESHOLD):
-                cv2.putText(
-                    panel,
-                    "No person detected",
-                    (18, 32),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    COLOR_TEXT_MUTED,
-                    2,
-                    cv2.LINE_AA,
+                self._put_text(
+                    view,
+                    "人物未検出",
+                    (18, 52),
+                    22,
+                    COLOR_WHITE,
                 )
 
+        cv2.rectangle(
+            panel,
+            (x0, y0),
+            (x0 + width, y0 + height),
+            COLOR_AXIS,
+            1,
+        )
+        self._draw_centered_panel_label(panel, "カメラ映像")
         return panel
+
+    def _draw_centered_panel_label(
+        self,
+        panel: NDArray[np.uint8],
+        text: str,
+    ) -> None:
+        """パネル上端の中央へ見出しを描画する."""
+        text_width = self._text_mask(text, 22).shape[1]
+        self._draw_panel_label(
+            panel,
+            text,
+            ((panel.shape[1] - text_width) // 2, 30),
+        )
+
+    def _draw_panel_label(
+        self,
+        panel: NDArray[np.uint8],
+        text: str,
+        position: tuple[int, int],
+    ) -> None:
+        """パネル左上へ読みやすい見出しを描画する."""
+        text_width, text_height = self._text_mask(text, 22).shape[::-1]
+        x, y = position
+        overlay = panel.copy()
+        cv2.rectangle(
+            overlay,
+            (x - 6, y - 6),
+            (x + text_width + 6, y + text_height + 6),
+            COLOR_BLACK,
+            -1,
+        )
+        cv2.addWeighted(overlay, 0.65, panel, 0.35, 0.0, panel)
+        self._put_text(panel, text, (x, y), 22, COLOR_WHITE)
 
     def _draw_skeleton_overlay(
         self,
@@ -355,6 +505,7 @@ class VisualizationNode(Node):
         points = self._get_display_points()
         rect = (18, 18, VIS_WIDTH - 36, VIS_HEIGHT - 36)
         self._draw_oblique_view(panel, rect, points)
+        self._draw_centered_panel_label(panel, "LiDAR点群")
         return panel
 
     def _get_display_points(self) -> NDArray[np.float32]:
@@ -378,18 +529,14 @@ class VisualizationNode(Node):
         view[:] = (28, 28, 28)
         cv2.rectangle(panel, (x0, y0), (x0 + width, y0 + height), COLOR_AXIS, 1)
         self._draw_floor_grid(view)
-        self._draw_oblique_axes(view)
 
         if points.shape[0] == 0:
-            cv2.putText(
+            self._put_text(
                 view,
-                "No foreground points",
-                (18, height // 2),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
+                "未検出",
+                (18, height // 2 - 12),
+                22,
                 COLOR_TEXT_MUTED,
-                2,
-                cv2.LINE_AA,
             )
             return
 
@@ -414,19 +561,11 @@ class VisualizationNode(Node):
             p0 = self._project_xyz(x, float(self._roi_min[1]), float(self._roi_min[2]), width, height)
             p1 = self._project_xyz(x, float(self._roi_max[1]), float(self._roi_min[2]), width, height)
             cv2.line(view, p0, p1, COLOR_GRID, 1, cv2.LINE_AA)
-            cv2.putText(
-                view, f"{x:.1f}", (p1[0] + 2, p1[1]),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.35, COLOR_TEXT_MUTED, 1, cv2.LINE_AA,
-            )
 
         for y in y_values:
             p0 = self._project_xyz(float(self._roi_min[0]), y, float(self._roi_min[2]), width, height)
             p1 = self._project_xyz(float(self._roi_max[0]), y, float(self._roi_min[2]), width, height)
             cv2.line(view, p0, p1, COLOR_GRID, 1, cv2.LINE_AA)
-            cv2.putText(
-                view, f"{y:.1f}", (p0[0] - 22, p0[1]),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.35, COLOR_TEXT_MUTED, 1, cv2.LINE_AA,
-            )
 
     def _draw_oblique_axes(self, view: NDArray[np.uint8]) -> None:
         """斜視図の基準軸を描画."""
@@ -528,7 +667,7 @@ class VisualizationNode(Node):
         total_width = canvas.shape[1]
 
         if self._latest_result is not None:
-            if self._latest_result.prediction == 1:
+            if self._latest_result.prediction:
                 # 転倒時は画面全体を赤枠で囲って視認性を上げる。
                 cv2.rectangle(
                     canvas,
@@ -546,42 +685,28 @@ class VisualizationNode(Node):
                     2,
                     cv2.LINE_AA,
                 )
-                # FALLING 表示 (赤)
-                text = "FALLING"
-                font_scale = 2.0
-                thickness = 4
-                text_size = cv2.getTextSize(
-                    text, cv2.FONT_HERSHEY_SIMPLEX,
-                    font_scale, thickness,
-                )[0]
-                x = (total_width - text_size[0]) // 2
-                y = 60
-                cv2.putText(
-                    canvas, text, (x, y),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    font_scale, COLOR_RED, thickness,
+                text = "転倒を検知"
+                text_width, _ = self._text_mask(text, 54).shape[::-1]
+                x = (total_width - text_width) // 2
+                text_height = self._text_mask(text, 54).shape[0]
+                overlay = canvas.copy()
+                cv2.rectangle(
+                    overlay,
+                    (x - 14, 6),
+                    (x + text_width + 14, 22 + text_height),
+                    COLOR_BLACK,
+                    -1,
                 )
-
-            # confidence には fall probability を表示する
-            conf_text = f"Fall Prob: {self._latest_result.confidence:.3f}"
-            cv2.putText(
-                canvas, conf_text, (10, canvas.shape[0] - 10),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_WHITE, 1,
-            )
-        else:
-            # 48 フレーム蓄積前
-            wait_text = "Waiting for 48 frames"
-            buf_text = f"Buffer: {self._frame_count}/48"
-            cv2.putText(
-                canvas, wait_text,
-                (total_width // 2 - 150, 40),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, COLOR_WHITE, 2,
-            )
-            cv2.putText(
-                canvas, buf_text,
-                (total_width // 2 - 80, 70),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_WHITE, 1,
-            )
+                cv2.addWeighted(
+                    overlay, 0.75, canvas, 0.25, 0.0, canvas
+                )
+                self._put_text(
+                    canvas,
+                    text,
+                    (x, 14),
+                    54,
+                    COLOR_RED,
+                )
 
     def _draw_probability_history(self, canvas: NDArray[np.uint8]) -> None:
         """画面下部に転倒確率の折れ線グラフを描画."""
@@ -619,27 +744,36 @@ class VisualizationNode(Node):
                 cv2.LINE_AA,
             )
 
-        cv2.putText(
+        self._put_text(
             canvas,
-            "Fall Probability History",
-            (x0 + 8, y0 - 8),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.55,
+            "転倒確率の履歴",
+            (x0 + 8, 0),
+            18,
             COLOR_WHITE,
-            1,
-            cv2.LINE_AA,
         )
 
-        if len(self._prob_history) < 2:
-            cv2.putText(
+        if self._latest_result is not None:
+            probability_text = (
+                f"転倒確率: {self._latest_result.confidence:.3f}"
+            )
+            probability_width = self._text_mask(
+                probability_text, 18
+            ).shape[1]
+            self._put_text(
                 canvas,
-                "Waiting for probability history",
+                probability_text,
+                (x0 + graph_width - probability_width - 8, 0),
+                18,
+                COLOR_WHITE,
+            )
+
+        if len(self._prob_history) < 2:
+            self._put_text(
+                canvas,
+                "確率履歴を待機中",
                 (x0 + 12, y0 + graph_height // 2),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.55,
+                18,
                 COLOR_TEXT_MUTED,
-                1,
-                cv2.LINE_AA,
             )
             return
 
@@ -656,13 +790,59 @@ class VisualizationNode(Node):
         ])
         cv2.fillPoly(canvas, [fill_points], COLOR_GRAPH_FILL)
 
+        # 閾値を超えた区間だけ、曲線下の領域を赤くする。閾値を横切る
+        # 線分は交点で分割し、NORMAL側まで赤くならないようにする。
+        threshold = 0.5
+        baseline_y = y0 + graph_height - 6
+        alert_segments: list[tuple[np.ndarray, np.ndarray]] = []
+        float_points = np.stack([xs, ys], axis=1)
+        for index in range(len(values) - 1):
+            value_a = float(values[index])
+            value_b = float(values[index + 1])
+            point_a = float_points[index]
+            point_b = float_points[index + 1]
+
+            split_points = [(point_a, value_a)]
+            if (value_a - threshold) * (value_b - threshold) < 0.0:
+                fraction = (threshold - value_a) / (value_b - value_a)
+                crossing = point_a + fraction * (point_b - point_a)
+                split_points.append((crossing, threshold))
+            split_points.append((point_b, value_b))
+
+            for (start, start_value), (end, end_value) in zip(
+                split_points[:-1], split_points[1:]
+            ):
+                if (start_value + end_value) * 0.5 <= threshold:
+                    continue
+                polygon = np.asarray(
+                    [
+                        start,
+                        end,
+                        [end[0], baseline_y],
+                        [start[0], baseline_y],
+                    ],
+                    dtype=np.int32,
+                )
+                cv2.fillPoly(canvas, [polygon], COLOR_GRAPH_ALERT_FILL)
+                alert_segments.append((start, end))
+
         # しきい値線
-        threshold_y = y0 + int((1.0 - 0.5) * graph_height)
+        threshold_y = y0 + int((1.0 - threshold) * graph_height)
         cv2.line(
             canvas,
             (x0, threshold_y),
             (x0 + graph_width, threshold_y),
             COLOR_GRAPH_ALERT,
+            1,
+            cv2.LINE_AA,
+        )
+        cv2.putText(
+            canvas,
+            "0.5",
+            (x0 + graph_width - 36, threshold_y - 5),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            COLOR_WHITE,
             1,
             cv2.LINE_AA,
         )
@@ -675,18 +855,15 @@ class VisualizationNode(Node):
             thickness=2,
             lineType=cv2.LINE_AA,
         )
-
-        latest = float(values[-1])
-        cv2.putText(
-            canvas,
-            f"{latest:.2f}",
-            (x0 + graph_width - 52, y0 + 20),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.55,
-            COLOR_WHITE,
-            1,
-            cv2.LINE_AA,
-        )
+        for start, end in alert_segments:
+            cv2.line(
+                canvas,
+                tuple(np.rint(start).astype(int)),
+                tuple(np.rint(end).astype(int)),
+                COLOR_GRAPH_ALERT_LINE,
+                3,
+                cv2.LINE_AA,
+            )
 
     def destroy_node(self) -> None:
         """ノード破棄時にウィンドウを閉じる."""

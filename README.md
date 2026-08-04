@@ -56,15 +56,17 @@ data/
 
 `data/checkpoints/` はLCFallの学習済み重み、`data/model-cache/` は姿勢推定器が参照するキャッシュであり、用途が異なる。
 
-ホストPCから直接実行するスクリプトは次の3つだけである。
+ホストPCから直接実行するスクリプトは次の4つである。
 
 | スクリプト | 用途 |
 |---|---|
 | `scripts/run.sh` | 統合デモの通常起動 |
+| `scripts/run_visualization.sh` | 可視化だけを別PCまたは同一PCで起動 |
 | `scripts/run_roi_tuner.sh` | ROI調整GUIの起動 |
 | `scripts/setup_and_check.sh` | 初期設定と単独の動作確認 |
 
 `docker/` 配下はComposeがコンテナ内部で使用するため、ホストから直接実行しない。
+ROS 2 Jazzyとの直接通信検証にだけ使用する資材は`validation/jazzy/`配下にまとめてあり、通常運用では使用しない。
 
 ## セットアップ
 
@@ -175,6 +177,42 @@ Wi-FiのIPv4アドレスが変わった場合は、通常起動前に`./scripts/
 
 保存したROIは `src/lcfall_ros2/config/params.yaml` に反映される。
 
+### LiDARの傾きを調整する
+
+LiDARの設置角度を変更した場合は、
+`src/lcfall_ros2/config/params.yaml`の次の値を調整する。
+
+```yaml
+apply_coordinate_transform: true
+lidar_roll: 1.1
+lidar_pitch: 27.8
+lidar_yaw: 0.0
+```
+
+- `lidar_roll`: 左右方向の傾き補正
+- `lidar_pitch`: 前後方向の傾き補正
+- `lidar_yaw`: 水平面上の向き補正
+
+転倒検知アプリを停止した状態で、値を0.5〜1度ずつ変更してROI調整GUIを起動する。
+
+```bash
+./scripts/run_roi_tuner.sh
+```
+
+点群表示を確認し、次を目安に調整する。
+
+- 床面が前後方向に傾いて見える場合は`lidar_pitch`を調整する
+- 床面が左右方向に傾いて見える場合は`lidar_roll`を調整する
+- 点群の水平方向が部屋の向きとずれる場合は`lidar_yaw`を調整する
+
+角度を変更した場合はROI調整GUIを再起動する。現在のGUIは設定済みの角度を点群へ
+反映するが、角度自体をGUI上で編集・保存する機能はない。調整完了後は通常どおり
+アプリを起動する。
+
+```bash
+./scripts/run.sh
+```
+
 ## 通常運用
 
 ### システム起動
@@ -193,10 +231,152 @@ Wi-FiのIPv4アドレスが変わった場合は、通常起動前に`./scripts/
 ENABLE_VISUALIZATION=false ./scripts/run.sh
 ```
 
+### 可視化だけを別PCで起動
+
+可視化専用コンテナはGPU、カメラ／LiDARドライバ、推論モデルを含まず、次の
+3トピックだけを購読する。
+
+- `/camera/visualization/compressed`
+- `/preprocessed/frame`
+- `/fall_detection/result`
+
+推論PCと可視化PCを同じLANへ接続し、マルチキャスト通信を許可する。両PCで
+Fast DDS、`ROS_DOMAIN_ID=43`、`ROS_LOCALHOST_ONLY=0`を使用する。推論PCの
+Fast DDS設定は`wlo1`へ限定されているため、可視化PCはそのWi-Fiネットワーク
+から到達できる必要がある。無線APのクライアント間通信禁止機能は無効にする。
+
+推論PCではローカル画面を無効にし、別PC向けJPEG配信だけを明示的に有効化して
+通常アプリを起動する。
+
+```bash
+ENABLE_VISUALIZATION=false \
+ENABLE_REMOTE_VISUALIZATION_STREAM=true \
+./scripts/run.sh
+```
+
+別PC向け配信は640×360、JPEG品質70、10 FPSである。通常の`./scripts/run.sh`や
+ローカル可視化だけを使う起動では既定値が`false`なので、縮小・JPEG圧縮・追加publishは
+一切実行されない。
+
+可視化PCへこのリポジトリを配置し、初回または可視化コード変更後に軽量イメージを
+ビルドする。チェックポイントとNVIDIA GPUは不要である。
+
+```bash
+cd ~/lcfall-ros2
+docker compose -f visualization/compose.yaml build
+```
+
+可視化だけを起動する。
+
+```bash
+./scripts/run_visualization.sh
+```
+
+停止する場合は`Ctrl+C`を押すか、別ターミナルで次を実行する。
+
+```bash
+docker compose -f visualization/compose.yaml down
+```
+
+ROS 2 Humbleと依存パッケージをホストへ直接導入している場合は、コンテナを使わず
+次のlaunchでも可視化ノードだけを起動できる。
+
+```bash
+source /opt/ros/humble/setup.bash
+source ~/lcfall-ros2/install/setup.bash
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+export ROS_DOMAIN_ID=43
+export ROS_LOCALHOST_ONLY=0
+ros2 launch lcfall_ros2 visualization.launch.py
+```
+
+別PC向け圧縮トピックを直接購読する場合は次の引数を付ける。
+
+```bash
+ros2 launch lcfall_ros2 visualization.launch.py use_compressed_image:=true
+```
+
+別名トピックを使う場合はlaunch引数で指定できる。
+
+```bash
+ros2 launch lcfall_ros2 visualization.launch.py \
+  camera_topic:=/camera/image_raw \
+  preprocessed_topic:=/preprocessed/frame \
+  result_topic:=/fall_detection/result
+```
+
+圧縮設定は`params.yaml`の`remote_image_publisher_node`で変更できる。映像が遅延する
+場合は`publish_fps`、`output_width`、`output_height`、`jpeg_quality`を下げるか、
+推論PCと可視化PCのネットワーク品質を確認する。
+
 ### 停止
 
 ```bash
 docker compose down
+```
+
+## ROS 2 Humble／Jazzy直接通信の再現手順
+
+同一PC上のROS 2 Humble転倒検知アプリからROS 2 Jazzy subscriberへ、ブリッジなしで`/fall_detection/result`を直接配信できることを確認済みである。通常の`./scripts/run.sh`はJazzyコンテナを起動しない。検証時だけ`validation/jazzy/compose.yaml`を明示して起動する。
+
+両側は次の通信設定を使用する。
+
+- RMW: `rmw_fastrtps_cpp`
+- ROS Domain: `43`
+- `ROS_LOCALHOST_ONLY=0`
+- Fast DDS profile: `config/fastdds/fastdds_wlo1.xml`
+- QoS: Reliable、Keep Last、depth 10、Volatile
+- Docker network／IPC: host
+
+### 1. Jazzy検証イメージをビルドする
+
+`lcfall_msgs`を変更した場合も、このコマンドでJazzy側のinterfaceを再ビルドする。
+
+```bash
+docker compose -f validation/jazzy/compose.yaml build jazzy-fall-subscriber
+```
+
+### 2. Jazzy subscriberを起動する
+
+```bash
+docker compose -f validation/jazzy/compose.yaml up -d --no-build jazzy-fall-subscriber
+docker compose -f validation/jazzy/compose.yaml logs -f jazzy-fall-subscriber
+```
+
+subscriberは`/fall_detection/result`を待ち受け、受信ごとに通算件数、stamp、bool型の`prediction`、`confidence`を出力する。
+
+### 3. Humble転倒検知アプリを起動する
+
+別ターミナルで通常の転倒検知アプリを起動する。検証時に画面表示が不要なら可視化を無効にできる。
+
+```bash
+ENABLE_VISUALIZATION=false ./scripts/run.sh
+```
+
+センサ入力が48フレーム蓄積されると実推論が始まり、Jazzyログに次の形式で表示される。
+
+```text
+RECEIVED count=1 stamp=... prediction=False confidence=...
+```
+
+### 4. Jazzy subscriberだけを再起動する
+
+Humbleアプリを動かしたまま、別ターミナルで実行する。
+
+```bash
+docker compose -f validation/jazzy/compose.yaml restart jazzy-fall-subscriber
+docker compose -f validation/jazzy/compose.yaml logs -f jazzy-fall-subscriber
+```
+
+再起動後は`count=1`から受信が再開する。実機検証ではbool型への変更後に初回6件、subscriber再起動後3件を受信し、QoS不一致、Jazzy側のdeserialize error、subscriber例外がないことを確認した。ブリッジプロセスは使用していない。
+
+Fast DDS 2.6.11を使用するHumble側では、Fast DDS 2.14.6のJazzy participantが同じDomainへ参加している間、discovery型情報の互換性に起因する`sequence size exceeds remaining buffer`が出力される。転倒検知msg本体は正常にdeserializeされるが、完全に警告なしの組み合わせではない。
+
+### 5. 検証を停止する
+
+```bash
+docker compose -f validation/jazzy/compose.yaml stop jazzy-fall-subscriber
+docker compose stop app
 ```
 
 ## トラブルシューティング
@@ -244,8 +424,8 @@ DISPLAY=:1 ./scripts/run.sh
 | パラメータ | デフォルト | 説明 |
 |---|---|---|
 | `roi_x_min` 〜 `roi_z_max` | 各種 | LiDAR ROI 範囲 [m] |
-| `inference_stride` | 10 | 推論間隔 |
-| `fall_decision_threshold` | 0.35 | 転倒判定しきい値 |
+| `inference_stride` | 10 | 推論間隔（同期後10 Hz想定で約1秒） |
+| `fall_decision_threshold` | 0.5 | 転倒判定しきい値 |
 | `camera_checkpoint_path` | `/data/checkpoints/camera/best_model.pth` | Camera 重み |
 | `lidar_checkpoint_path` | `/data/checkpoints/lidar/best_model.pth` | LiDAR 重み |
 | `fusion_checkpoint_path` | `/data/checkpoints/fusion/best_model.pth` | Fusion 重み |
@@ -268,7 +448,8 @@ DISPLAY=:1 ./scripts/run.sh
 | `sync_preprocess_node` | `/camera/image_raw`, `/livox/lidar` | `/preprocessed/frame` |
 | `inference_node` | `/preprocessed/frame` | `/fall_detection/result` |
 | `alert_node` | `/fall_detection/result` | - |
-| `visualization_node` | `/camera/image_raw`, `/livox/lidar`, `/preprocessed/frame`, `/fall_detection/result` | - |
+| `visualization_node` | `/camera/image_raw`または`/camera/visualization/compressed`、`/preprocessed/frame`、`/fall_detection/result` | - |
+| `remote_image_publisher_node` | `/camera/image_raw` | `/camera/visualization/compressed` |
 
 ## モデルアーキテクチャ
 
@@ -278,8 +459,8 @@ DISPLAY=:1 ./scripts/run.sh
 |---|---|
 | backbone | `ResNet3dSlowOnly` (depth=50, in_channels=17) |
 | cls_head | `I3DHead` (in_channels=512, num_classes=2) |
-| 入力 | Heatmap `(B, 17, 48, 56, 56)` |
-| Heatmap sigma | 0.6 |
+| 入力 | Heatmap `(B, 17, 48, 64, 64)` |
+| Heatmap | PoseCompact → 64×64、sigma 0.6 |
 | キーポイント | 17 点 |
 
 ### LiDAR Branch — PointNet++ + GRU
@@ -313,7 +494,7 @@ float32[] pointcloud_frame
 
 ```text
 std_msgs/Header header
-uint8 prediction
+bool prediction
 float32 confidence
 ```
 
@@ -334,7 +515,10 @@ R = Rz(yaw) · Ry(pitch) · Rx(roll)
 
 | 画面 | 内容 |
 |---|---|
-| 左 | カメラ画像 + skeleton overlay |
-| 右 | 点群の投影 |
-| 上部 | 転倒時のみ `FALLING` を表示 |
-| 下部 | confidence 値グラフ |
+| 左 | 「カメラ映像」: カメラ画像 + skeleton overlay |
+| 右 | 「LiDAR点群」: 点群の投影 |
+| 上部 | 転倒時のみ「転倒を検知」を表示 |
+| 下部 | 転倒確率グラフ（0.5超過区間は赤色） |
+
+描画頻度は `params.yaml` の `display_fps` で変更できる（既定値: 15 FPS）。
+この値は可視化だけに作用し、センサー取得・前処理・推論周期には影響しない。
