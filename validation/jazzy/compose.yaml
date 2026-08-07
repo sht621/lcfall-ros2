@@ -9,7 +9,7 @@ services:
     ipc: host
     environment:
       - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-      - ROS_DOMAIN_ID=43
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
       - ROS_LOCALHOST_ONLY=0
       - FASTRTPS_DEFAULT_PROFILES_FILE=/etc/fastdds/fastdds_wlo1.xml
     volumes:

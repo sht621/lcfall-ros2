@@ -151,9 +151,9 @@ Livox ドライバ用の設定ファイルは
 
 #### ROS 2／Fast DDSネットワーク
 
-正式構成はFast DDS、ROS Domain 43、`ROS_LOCALHOST_ONLY=0`を使用する。外部DDS通信は[config/fastdds/fastdds_wlo1.xml](config/fastdds/fastdds_wlo1.xml)によりWi-Fi NIC `wlo1`へ限定し、Livox専用NICとDocker bridgeをDDS通信に使用しない。Livox独自UDP通信は`enxf8e43b827753`を使用する。
+正式構成はFast DDS、ROS Domain 0、`ROS_LOCALHOST_ONLY=0`を使用する。外部DDS通信は[config/fastdds/fastdds_wlo1.xml](config/fastdds/fastdds_wlo1.xml)によりWi-Fi NIC `wlo1`へ限定し、Livox専用NICとDocker bridgeをDDS通信に使用しない。Livox独自UDP通信は`enxf8e43b827753`を使用する。
 
-Wi-FiのIPv4アドレスが変わった場合は、通常起動前に`./scripts/setup_and_check.sh`を実行してFast DDS XMLを現在の`wlo1`へ合わせる。別PCから購読する場合もROS Domain 43を使用する。
+Wi-FiのIPv4アドレスが変わった場合は、通常起動前に`./scripts/setup_and_check.sh`を実行してFast DDS XMLを現在の`wlo1`へ合わせる。別PCから購読する場合もROS Domain 0を使用する。
 
 ### 5. 起動前確認を単独実行する
 
@@ -241,7 +241,7 @@ ENABLE_VISUALIZATION=false ./scripts/run.sh
 - `/fall_detection/result`
 
 推論PCと可視化PCを同じLANへ接続し、マルチキャスト通信を許可する。両PCで
-Fast DDS、`ROS_DOMAIN_ID=43`、`ROS_LOCALHOST_ONLY=0`を使用する。推論PCの
+Fast DDS、`ROS_DOMAIN_ID=0`、`ROS_LOCALHOST_ONLY=0`を使用する。推論PCの
 Fast DDS設定は`wlo1`へ限定されているため、可視化PCはそのWi-Fiネットワーク
 から到達できる必要がある。無線APのクライアント間通信禁止機能は無効にする。
 
@@ -285,7 +285,7 @@ ROS 2 Humbleと依存パッケージをホストへ直接導入している場�
 source /opt/ros/humble/setup.bash
 source ~/lcfall-ros2/install/setup.bash
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-export ROS_DOMAIN_ID=43
+export ROS_DOMAIN_ID=0
 export ROS_LOCALHOST_ONLY=0
 ros2 launch lcfall_ros2 visualization.launch.py
 ```
@@ -322,7 +322,7 @@ docker compose down
 両側は次の通信設定を使用する。
 
 - RMW: `rmw_fastrtps_cpp`
-- ROS Domain: `43`
+- ROS Domain: `0`
 - `ROS_LOCALHOST_ONLY=0`
 - Fast DDS profile: `config/fastdds/fastdds_wlo1.xml`
 - QoS: Reliable、Keep Last、depth 10、Volatile

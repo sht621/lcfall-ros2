@@ -130,7 +130,7 @@ RUN pip3 install --no-cache-dir \
 
 # Keep the optional ROS middleware available without changing the Fast DDS
 # production selection configured by Compose.
-RUN --network=host \
+RUN \
     apt-get update && apt-get install -y \
     ros-humble-rmw-cyclonedds-cpp \
     && rm -rf /var/lib/apt/lists/*

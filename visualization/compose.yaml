@@ -12,7 +12,7 @@ services:
       - XAUTHORITY=/tmp/.Xauthority
       - QT_X11_NO_MITSHM=1
       - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-43}
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
       - ROS_LOCALHOST_ONLY=0
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw

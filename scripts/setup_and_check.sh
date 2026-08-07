@@ -15,7 +15,7 @@ LIVOX_INTERFACE="enxf8e43b827753"
 LIVOX_HOST_CIDR="192.168.1.50/24"
 LIVOX_HOST_IP="192.168.1.50"
 LIVOX_SENSOR_IP="192.168.1.198"
-ROS_DOMAIN="43"
+ROS_DOMAIN="0"
 IMAGE_NAME="lcfall-ros2-rtx3050-image"
 FAST_DDS_TEMP_PATH=""
 
@@ -381,7 +381,7 @@ compose_config="$(docker compose -f "${COMPOSE_FILE}" config 2>> "${LOG_FILE}")"
 printf '%s\n' "${compose_config}" >> "${LOG_FILE}"
 for expected in \
   'RMW_IMPLEMENTATION: rmw_fastrtps_cpp' \
-  'ROS_DOMAIN_ID: "43"' \
+  'ROS_DOMAIN_ID: "0"' \
   'ROS_LOCALHOST_ONLY: "0"' \
   'FASTRTPS_DEFAULT_PROFILES_FILE: /etc/fastdds/fastdds_wlo1.xml' \
   'target: /etc/fastdds/fastdds_wlo1.xml'
@@ -508,7 +508,7 @@ if ! docker compose -f "${COMPOSE_FILE}" run --rm --no-deps \
     nvidia-smi -L
     test "${ROS_DISTRO}" = "humble"
     test "${RMW_IMPLEMENTATION}" = "rmw_fastrtps_cpp"
-    test "${ROS_DOMAIN_ID}" = "43"
+    test "${ROS_DOMAIN_ID}" = "0"
     test "${ROS_LOCALHOST_ONLY}" = "0"
     source /opt/ros/humble/setup.bash
     ros2 --help >/dev/null

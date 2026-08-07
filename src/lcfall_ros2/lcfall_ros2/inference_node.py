@@ -50,6 +50,10 @@ class InferenceNode(Node):
 
     # 時系列窓長
     WINDOW_SIZE: int = 48
+    POSTURE_WINDOW_SIZE: int = 12
+    SENSOR_VALIDITY_WINDOW_SIZE: int = 3
+    MIN_VALID_KEYPOINTS: int = 8
+    MIN_UNIQUE_LIDAR_POINTS: int = 20
 
     def __init__(self) -> None:
         super().__init__("inference_node")
@@ -265,6 +269,21 @@ class InferenceNode(Node):
         _, learned_confidence = self._infer(heatmaps, normalized_pc)
         posture_confidence = self._posture_fall_probability(skeleton_seq)
         confidence = max(learned_confidence, posture_confidence)
+
+        # カメラ姿勢推定が継続して利用できず、ROI内には点群がある場合に
+        # 限ってLiDARの形状ルールでモデルの見逃しを補う。モデル入力と
+        # 推論処理は変更せず、モデルが閾値以上ならLiDAR補助も適用しない。
+        lidar_posture_confidence = 0.0
+        lidar_rule_enabled = (
+            learned_confidence < self._fall_threshold
+            and self._camera_is_unusable(skeleton_seq)
+            and self._lidar_person_is_present(pointcloud_seq)
+        )
+        if lidar_rule_enabled:
+            lidar_posture_confidence = (
+                self._lidar_posture_fall_probability(pointcloud_seq)
+            )
+            confidence = max(confidence, lidar_posture_confidence)
         prediction = confidence > self._fall_threshold
 
         # 結果 publish
@@ -279,7 +298,9 @@ class InferenceNode(Node):
             f"Inference result: {label} "
             f"(confidence={confidence:.6f}, "
             f"model={learned_confidence:.6f}, "
-            f"posture={posture_confidence:.6f})"
+            f"posture={posture_confidence:.6f}, "
+            f"lidar_posture={lidar_posture_confidence:.6f}, "
+            f"lidar_rule={'on' if lidar_rule_enabled else 'off'})"
         )
 
     @staticmethod
@@ -289,7 +310,9 @@ class InferenceNode(Node):
         """体幹角度と骨格BBox縦横比から継続した横臥姿勢を計算する."""
         frame_scores: list[float] = []
         # 約2秒分に限定し、過去の転倒姿勢を長く保持しない。
-        for frame in skeleton_sequence[-12:]:
+        for frame in skeleton_sequence[
+            -InferenceNode.POSTURE_WINDOW_SIZE:
+        ]:
             keypoints = frame.reshape(17, 3)
 
             # COCO keypoints: left/right shoulder=5/6, left/right hip=11/12。
@@ -345,10 +368,138 @@ class InferenceNode(Node):
             )
             frame_scores.append(min(score, bbox_score))
 
-        if len(frame_scores) < 2:
+        if len(frame_scores) < 4:
             return 0.0
-        # 2番目に高い値を使い、単発のキーポイント崩れでは発火させない。
-        return float(np.partition(np.asarray(frame_scores), -2)[-2])
+        # 4番目に高い値を使い、短時間のキーポイント崩れでは発火させない。
+        return float(np.partition(np.asarray(frame_scores), -4)[-4])
+
+    @staticmethod
+    def _skeleton_frame_is_valid(frame: NDArray[np.float32]) -> bool:
+        """カメラ姿勢判定に使える骨格が含まれるかを返す."""
+        if frame.size != 17 * 3 or not np.all(np.isfinite(frame)):
+            return False
+
+        keypoints = frame.reshape(17, 3)
+        valid = keypoints[:, 2] >= 0.4
+        if int(valid.sum()) < InferenceNode.MIN_VALID_KEYPOINTS:
+            return False
+
+        # カメラpostureと同じく、両肩・両腰がすべて見えることを要求する。
+        torso_indices = np.asarray([5, 6, 11, 12])
+        return bool(np.all(valid[torso_indices]))
+
+    @staticmethod
+    def _camera_is_unusable(
+        skeleton_sequence: NDArray[np.float32],
+    ) -> bool:
+        """直近フレームで骨格を継続して取得できないかを返す."""
+        recent = skeleton_sequence[
+            -InferenceNode.SENSOR_VALIDITY_WINDOW_SIZE:
+        ]
+        if len(recent) < InferenceNode.SENSOR_VALIDITY_WINDOW_SIZE:
+            return False
+        return not any(
+            InferenceNode._skeleton_frame_is_valid(frame)
+            for frame in recent
+        )
+
+    @staticmethod
+    def _valid_lidar_points(
+        frame: NDArray[np.float32],
+    ) -> NDArray[np.float32]:
+        """整形済みROI点群から有効なユニーク点だけを返す."""
+        if frame.size == 0 or frame.size % 3 != 0:
+            return np.empty((0, 3), dtype=np.float32)
+
+        points = frame.reshape(-1, 3)
+        finite = np.all(np.isfinite(points), axis=1)
+        nonzero = np.any(np.abs(points) > 1.0e-6, axis=1)
+        points = points[finite & nonzero]
+        if len(points) == 0:
+            return np.empty((0, 3), dtype=np.float32)
+
+        # 点不足時の重複サンプリングを人物点数として数えない。
+        return np.unique(points, axis=0).astype(np.float32, copy=False)
+
+    @staticmethod
+    def _lidar_frame_has_person_points(
+        frame: NDArray[np.float32],
+    ) -> bool:
+        """手動ROI内に人物候補として十分な点があるかを返す."""
+        points = InferenceNode._valid_lidar_points(frame)
+        return len(points) >= InferenceNode.MIN_UNIQUE_LIDAR_POINTS
+
+    @staticmethod
+    def _lidar_person_is_present(
+        pointcloud_sequence: NDArray[np.float32],
+    ) -> bool:
+        """直近3フレーム中2フレーム以上にROI点群があるかを返す."""
+        recent = pointcloud_sequence[
+            -InferenceNode.SENSOR_VALIDITY_WINDOW_SIZE:
+        ]
+        if len(recent) < InferenceNode.SENSOR_VALIDITY_WINDOW_SIZE:
+            return False
+        valid_frames = sum(
+            InferenceNode._lidar_frame_has_person_points(frame)
+            for frame in recent
+        )
+        return valid_frames >= 2
+
+    @staticmethod
+    def _lidar_posture_fall_probability(
+        pointcloud_sequence: NDArray[np.float32],
+    ) -> float:
+        """ROI点群の高さと水平長から継続した横臥姿勢を計算する."""
+        frame_scores: list[float] = []
+        for frame in pointcloud_sequence[
+            -InferenceNode.POSTURE_WINDOW_SIZE:
+        ]:
+            points = InferenceNode._valid_lidar_points(frame)
+            if len(points) < InferenceNode.MIN_UNIQUE_LIDAR_POINTS:
+                frame_scores.append(0.0)
+                continue
+
+            # 高さは外れ値に影響されにくい5–95%幅を使う。
+            height = float(
+                np.percentile(points[:, 2], 95)
+                - np.percentile(points[:, 2], 5)
+            )
+
+            # XY平面の主軸へ投影し、前後・左右・斜めの転倒を同じように
+            # 評価できる方向非依存の水平長を求める。
+            xy = points[:, :2]
+            xy_centered = xy - np.median(xy, axis=0)
+            covariance = np.cov(xy_centered, rowvar=False)
+            if covariance.shape != (2, 2) or not np.all(
+                np.isfinite(covariance)
+            ):
+                frame_scores.append(0.0)
+                continue
+
+            eigenvalues, eigenvectors = np.linalg.eigh(covariance)
+            main_axis = eigenvectors[:, int(np.argmax(eigenvalues))]
+            projected = xy_centered @ main_axis
+            horizontal = float(
+                np.percentile(projected, 95)
+                - np.percentile(projected, 5)
+            )
+            if horizontal < 1.0e-3:
+                frame_scores.append(0.0)
+                continue
+
+            # カメラBBoxと同じ比率: H/W >= 1.25で0、<= 0.60で1。
+            # S字カーブにして、確率が不自然に跳ねないよう連続化する。
+            height_width_ratio = height / horizontal
+            normalized = float(
+                np.clip((1.25 - height_width_ratio) / 0.65, 0.0, 1.0)
+            )
+            score = normalized * normalized * (3.0 - 2.0 * normalized)
+            frame_scores.append(score)
+
+        if len(frame_scores) < 4:
+            return 0.0
+        # カメラpostureと同様、4フレーム未満の点群崩れを無視する。
+        return float(np.partition(np.asarray(frame_scores), -4)[-4])
 
     def _infer(
         self,
