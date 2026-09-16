@@ -93,8 +93,12 @@ RUN pip3 install --upgrade pip && \
 # =============================================================
 # 7. PyTorch
 # =============================================================
-RUN pip3 install --pre torch torchvision torchaudio "numpy==1.26.4" \
-    --index-url https://download.pytorch.org/whl/nightly/cu128
+RUN pip3 install \
+    torch==2.11.0 \
+    torchvision==0.26.0 \
+    torchaudio==2.11.0 \
+    "numpy==1.26.4" \
+    --index-url https://download.pytorch.org/whl/cu128
 
 # =============================================================
 # 8. OpenMMLab
