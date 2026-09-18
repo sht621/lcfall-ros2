@@ -132,7 +132,8 @@ ip addr
 このシステムでは、LiDAR ネットワーク設定を次の固定値で運用する。
 
 - ホスト PC 側 LiDAR 用 NIC: `192.168.1.50`
-- Livox MID-360 側 IP: `192.168.1.198`
+- Livox MID-360 側 IP: `192.168.1.xxx`
+- LivoxのIPは個体ごとに決まっているため確認して設定ファイルを書き換える     
 
 Livox ドライバ用の設定ファイルは
 [config/livox/MID360_config.json](/home/user/lcfall_ws/lcfall-ros2/config/livox/MID360_config.json:1)
