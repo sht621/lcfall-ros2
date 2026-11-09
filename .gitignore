@@ -1,3 +1,12 @@
+.DS_Store
+.env
 data/
 __pycache__/
 *.py[cod]
+build/
+install/
+log/
+artifacts/*
+!artifacts/README.md
+models/*
+!models/README.md

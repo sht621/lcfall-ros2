@@ -1,0 +1,43 @@
+sync_node:
+  ros__parameters:
+    rgb_topic: /camera/camera/color/image_raw  # requires Pi verification
+    lidar_topic: /livox/lidar                 # implementation initial value; verify driver
+    queue_size: 10
+    slop_sec: 0.0167
+    rgb_reliability: best_effort
+    lidar_reliability: best_effort
+    rgb_depth: 10
+    lidar_depth: 10
+pose_estimation_node:
+  ros__parameters:
+    image_width: 1280
+    image_height: 720
+    hef_path: /models/yolov8m_pose.hef
+    model_manifest: /models/pose_model.yaml
+lidar_preprocess_node:
+  ros__parameters:
+    target_frame: fall_detection_frame
+    roi:
+      x_min: 1.0
+      x_max: 8.0
+      y_min: -2.0
+      y_max: 2.0
+      z_min: 0.0
+      z_max: 2.0
+frame_publisher_node:
+  ros__parameters:
+    pairs_buffer_size: 10
+    poses_buffer_size: 10
+    points_buffer_size: 10
+    pending_timeout_sec: 1.0
+    duplicate_history_size: 256  # implementation initial value, key history only
+topic_to_service_bridge_node:
+  ros__parameters:
+    use_edgerm: true
+    edgerm_url: ''           # REQUIRED for current EdgeRM transport
+    edgerm_runtime_name: ''  # REQUIRED; must match server
+    edgerm_verbose: false
+    service_name: /send_synchronized_frame  # implementation initial value; configure EdgeRM endpoint
+    max_in_flight_requests: 2
+    pending_buffer_size: 1
+    request_timeout_sec: 0.5

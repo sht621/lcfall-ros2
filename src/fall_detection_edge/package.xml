@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>fall_detection_edge</name>
+  <version>0.1.0</version>
+  <description>Pi 5 Hailo RGB and LiDAR edge observation pipeline.</description>
+  <maintainer email="maintainers@example.com">Edge pipeline maintainers</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_python</buildtool_depend>
+  <depend>rclpy</depend>
+  <depend>rcl_interfaces</depend>
+  <depend>fall_detection_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <exec_depend>message_filters</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>cv_bridge</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>realsense2_camera</exec_depend>
+  <exec_depend>livox_ros_driver2</exec_depend>
+  <export><build_type>ament_python</build_type></export>
+</package>

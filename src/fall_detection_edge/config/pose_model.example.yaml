@@ -1,0 +1,34 @@
+# Configuration template, NOT the specification of an available HEF.
+# Match every field to the actual YOLOv8m-Pose compilation before use.
+# requires Pi verification. No model or binary artifact is included.
+verified_for_hef: false
+input_shape: [640, 640, 3]  # illustrative HWC only, must equal HEF
+preprocess:
+  channel_order: rgb
+  pad_value: 114
+  input_dtype: uint8
+  input_quantized: true
+  input_scale: 1.0
+  input_offset: 0.0
+# Three separate raw HWC heads per stride: DFL boxes (4*reg_max),
+# one person score, 17*(x,y,score). Raw YOLOv8 keypoint XY only.
+decoder:
+  type: yolov8_pose_raw
+  reg_max: 16
+  scores: probabilities
+  keypoint_scores: logits
+  missing_joints: none
+  person_score_threshold: null  # REQUIRED: actual model's person selection condition
+  nms_iou_threshold: null       # REQUIRED: actual model's NMS condition
+  heads:
+    - {stride: 8, boxes: REPLACE_stride8_boxes, scores: REPLACE_stride8_scores, keypoints: REPLACE_stride8_keypoints}
+    - {stride: 16, boxes: REPLACE_stride16_boxes, scores: REPLACE_stride16_scores, keypoints: REPLACE_stride16_keypoints}
+    - {stride: 32, boxes: REPLACE_stride32_boxes, scores: REPLACE_stride32_scores, keypoints: REPLACE_stride32_keypoints}
+# For embedded postprocessing or another layout replace decoder with:
+# decoder:
+#   type: custom
+#   module: your_hef_decoder
+# module.create_decoder(config, output_shapes, input_shape) -> object with decode(outputs).
+# decode returns float32 (N,56): input pixel xyxy + detection score + COCO17 (x,y,score).
+# No persons: (0,56); errors must raise. Missing joints: all-three NaN.
+# No low-confidence joint filtering, tracking or fall decisions.

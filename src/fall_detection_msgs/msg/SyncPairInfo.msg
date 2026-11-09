@@ -1,0 +1,2 @@
+builtin_interfaces/Time rgb_stamp
+builtin_interfaces/Time lidar_stamp

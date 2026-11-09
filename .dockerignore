@@ -1,2 +1,11 @@
 .git
-data/model-cache
+.env
+data
+.DS_Store
+**/__pycache__
+**/*.py[cod]
+build
+install
+log
+models
+docs

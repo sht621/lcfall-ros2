@@ -1,0 +1,6 @@
+# Provisional physical mounting; NOT calibrated. requires Pi verification.
+# Transform maps child points into parent (p_parent = R*p_child + t).
+parent_frame: fall_detection_frame
+child_frame: livox_frame
+translation_m: [0.0, 0.0, 0.85]
+rpy_degrees: [0.0, 25.0, 0.0]

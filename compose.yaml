@@ -1,81 +1,51 @@
+# Not executed. Populate .env only during the explicitly authorized Pi stage.
 services:
-  app:
+  edge:
+    image: fall-detection-edge:jazzy-arm64
+    platform: linux/arm64
     build:
       context: .
-      dockerfile: Dockerfile
-      network: host
-    image: lcfall-ros2-rtx3050-image
-    tty: true
-    stdin_open: true
+      args:
+        EDGE_ROS_BASE_IMAGE: ${EDGE_ROS_BASE_IMAGE:-ros:jazzy-ros-base}
+        WITH_EDGERM: ${WITH_EDGERM:-OFF}
+        LIBREALSENSE_REF: ${LIBREALSENSE_REF:?Set exact librealsense revision}
+        REALSENSE_ROS_REF: ${REALSENSE_ROS_REF:?Set exact Jazzy realsense-ros revision}
+        LIVOX_SDK2_REF: ${LIVOX_SDK2_REF:?Set exact SDK2 revision}
+        LIVOX_DRIVER_REF: ${LIVOX_DRIVER_REF:?Set exact ROS2 driver revision}
+        HAILORT_DEB: ${HAILORT_DEB:?Set ARM64 runtime deb basename from artifacts/}
+        HAILORT_WHEEL: ${HAILORT_WHEEL:?Set matching cp312 ARM64 wheel basename from artifacts/}
+        BUILD_JOBS: ${BUILD_JOBS:-2}
     network_mode: host
-    ipc: host
+    init: true
+    stop_grace_period: 5s
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,mode=1777,size=512m
     environment:
-      - DISPLAY=${DISPLAY:-:0}
-      - XAUTHORITY=/tmp/.Xauthority
-      - QT_X11_NO_MITSHM=1
-      - ENABLE_VISUALIZATION=${ENABLE_VISUALIZATION:-true}
-      - ENABLE_REMOTE_VISUALIZATION_STREAM=${ENABLE_REMOTE_VISUALIZATION_STREAM:-false}
-      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-      - ROS_DOMAIN_ID=0
-      - ROS_LOCALHOST_ONLY=0
-      - FASTRTPS_DEFAULT_PROFILES_FILE=/etc/fastdds/fastdds_wlo1.xml
-      - PYTHONDONTWRITEBYTECODE=1
-      - LIVOX_CONFIG_PATH=/root/ros2_ws/src/LCFall/config/livox/MID360_config.json
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+      ROS_LOCALHOST_ONLY: '0'
+      PYTHONPATH: /models
+      LIVOX_CONFIG_PATH: /opt/edge-config/MID360_config.json
+    devices:
+      - ${HAILO_DEVICE:-/dev/hailo0}:/dev/hailo0
+      # Pin to D455's actual USB bus/device; re-evaluate after reconnect.
+      - ${REALSENSE_USB_DEVICE:?Set actual /dev/bus/usb/BBB/DDD path}:${REALSENSE_USB_DEVICE}
+    group_add:
+      - ${HAILO_GID:?Set numeric group owning Hailo device}
+      - ${USB_GID:?Set numeric group permitting D455 USB access}
     volumes:
-      - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      - ${XAUTHORITY_HOST:-/dev/null}:/tmp/.Xauthority:ro
-      - /dev/bus/usb:/dev/bus/usb:rw
-      - .:/root/ros2_ws/src/LCFall
-      - ./data:/data
-      - ./data/model-cache:/root/.cache
-      - ./data/checkpoints/camera/best_model.pth:/data/checkpoints/camera/best_model.pth:ro
-      - ./data/checkpoints/lidar/best_model.pth:/data/checkpoints/lidar/best_model.pth:ro
-      - ./data/checkpoints/fusion/best_model.pth:/data/checkpoints/fusion/best_model.pth:ro
-      - ./config/fastdds/fastdds_wlo1.xml:/etc/fastdds/fastdds_wlo1.xml:ro
-    device_cgroup_rules:
-      - "c 189:* rmw"
-    entrypoint: ["/root/ros2_ws/src/LCFall/docker/entrypoint.sh"]
-    command: ["/root/ros2_ws/src/LCFall/docker/run_app.sh"]
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu, utility, compute]
-
-  roi-tuner:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      network: host
-    image: lcfall-ros2-rtx3050-image
-    tty: true
-    stdin_open: true
-    network_mode: host
-    ipc: host
-    environment:
-      - DISPLAY=${DISPLAY:-:0}
-      - XAUTHORITY=/tmp/.Xauthority
-      - QT_X11_NO_MITSHM=1
-      - LIBGL_ALWAYS_SOFTWARE=1
-      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-      - ROS_DOMAIN_ID=0
-      - ROS_LOCALHOST_ONLY=0
-      - FASTRTPS_DEFAULT_PROFILES_FILE=/etc/fastdds/fastdds_wlo1.xml
-      - PYTHONDONTWRITEBYTECODE=1
-      - LIVOX_CONFIG_PATH=/root/ros2_ws/src/LCFall/config/livox/MID360_config.json
-      - ROI_CONFIG_PATH=/root/ros2_ws/src/LCFall/src/lcfall_ros2/config/params.yaml
-      - ROI_TUNER_AUTOTEST=${ROI_TUNER_AUTOTEST:-}
-      - ROI_TUNER_SCREENSHOT_PATH=${ROI_TUNER_SCREENSHOT_PATH:-}
-    volumes:
-      - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      - ${XAUTHORITY_HOST:-/home/dlab/.Xauthority}:/tmp/.Xauthority:ro
-      - /usr/share/fonts/opentype/noto:/usr/share/fonts/opentype/noto:ro
-      - /dev/bus/usb:/dev/bus/usb:rw
-      - .:/root/ros2_ws/src/LCFall
-      - ./config/fastdds/fastdds_wlo1.xml:/etc/fastdds/fastdds_wlo1.xml:ro
-    device_cgroup_rules:
-      - "c 189:* rmw"
-    entrypoint: ["/root/ros2_ws/src/LCFall/docker/entrypoint.sh"]
-    command: ["/root/ros2_ws/src/LCFall/docker/run_roi_tuner.sh"]
+      - ./models:/models:ro
+      - ./src/fall_detection_edge/config:/opt/edge-params:ro
+      - ./config/livox/MID360_config.json:/opt/edge-config/MID360_config.json:ro
+    command:
+      - ros2
+      - launch
+      - fall_detection_edge
+      - edge.launch.py
+      - params_file:=/opt/edge-params/edge.yaml
+      - mount_file:=/opt/edge-params/mount.yaml
+      - enable_bridge:=${ENABLE_BRIDGE:-true}
+      - publish_mount_tf:=${PUBLISH_MOUNT_TF:-true}
+    # No automatic restart, privileged mode, GPU runtime, raw RGB server stream,
+    # or persistent application logs. View attached console during Pi operation.
+    logging:
+      driver: none
