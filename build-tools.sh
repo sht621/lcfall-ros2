@@ -96,20 +96,33 @@ colcon-build() (
         "${EDGE_CMAKE_ARGS[@]}"
 )
 install-hailort() (
-    # Image build only. Inspect supplied artifacts; never choose a runtime version
-    # or let pip resolve dependencies over apt's NumPy/OpenCV/cv_bridge stack.
+    # Image build only. The release/URLs match the user's host driver/FW lock.
+    # No version override, alternate mirror or PCIe kernel driver installation.
+    # Never let pip resolve dependencies over apt's NumPy/OpenCV/cv_bridge stack.
     set -euo pipefail
-    : "${HAILORT_DEB:?Provide the real ARM64 HailoRT deb filename}"
-    : "${HAILORT_WHEEL:?Provide the matching CPython 3.12 ARM64 wheel filename}"
-    local deb="/tmp/hailo-artifacts/$HAILORT_DEB"
-    local wheel="/tmp/hailo-artifacts/$HAILORT_WHEEL"
+    local -r version=4.23.0
+    local -r base_url=https://dev-public.hailo.ai/2025_10/Hailo8
+    local download_directory
+    download_directory="$(mktemp -d /tmp/edge-hailort.XXXXXXXX)"
+    trap 'rm -rf -- "$download_directory"' EXIT
+    chmod 755 "$download_directory"
+    local deb="$download_directory/hailort_${version}_arm64.deb"
+    local wheel="$download_directory/hailort-${version}-cp312-cp312-linux_aarch64.whl"
     test "$(dpkg --print-architecture)" = arm64
+    # -q ignores curlrc; TLS certificate verification remains enabled. Redirects
+    # must also use HTTPS. HTTP/network errors stop the build, without fallback.
+    curl -q --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+        --connect-timeout 30 --max-time 300 --output "$deb" "$base_url/$(basename "$deb")"
+    curl -q --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+        --connect-timeout 30 --max-time 300 --output "$wheel" "$base_url/$(basename "$wheel")"
+    # No publisher SHA256 was found in the community announcement or HTTP
+    # headers. Do not invent a lock or treat the multipart ETag as a checksum.
     test "$(dpkg-deb --field "$deb" Architecture)" = arm64
     test "$(dpkg-deb --field "$deb" Package)" = hailort
     apt-get update
     apt-get install -y --no-install-recommends "$deb"
     # Inspect Python dependencies after apt has resolved the deb dependencies.
-    /usr/bin/python3 - "$deb" "$wheel" <<'PYTHON'
+    /usr/bin/python3 - "$deb" "$wheel" "$version" <<'PYTHON'
 import email
 import importlib.metadata
 from pathlib import Path
@@ -125,15 +138,15 @@ from packaging.version import Version
 
 if sys.implementation.name != 'cpython' or sys.version_info[:2] != (3, 12):
     raise SystemExit('Hailo artifacts require the Jazzy CPython 3.12 environment')
-deb, wheel = sys.argv[1:]
+deb, wheel, expected_version = sys.argv[1:]
 name, version, _, tags = parse_wheel_filename(Path(wheel).name)
 if canonicalize_name(name) != 'hailort' or not tags.intersection(sys_tags()):
     raise SystemExit('Expected a hailort wheel compatible with this ARM64 CPython')
 deb_version = subprocess.check_output(
     ['dpkg-deb', '--field', deb, 'Version'], text=True).strip()
 upstream_version = deb_version.split(':', 1)[-1].split('-', 1)[0]
-if Version(upstream_version) != version:
-    raise SystemExit('HailoRT deb and wheel release versions differ')
+if Version(upstream_version) != version or version != Version(expected_version):
+    raise SystemExit('HailoRT deb and wheel must both match the fixed 4.23.0 release')
 with zipfile.ZipFile(wheel) as archive:
     paths = [p for p in archive.namelist() if p.endswith('.dist-info/METADATA')]
     if len(paths) != 1:

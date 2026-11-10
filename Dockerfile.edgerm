@@ -185,9 +185,6 @@ EDGE_CMAKE_ARGS=(-DROS_EDITION=ROS2 -DDISTRO_ROS=jazzy)
 colcon-build src /opt/edge_ws/install realsense2_camera livox_ros_driver2
 BUILD
 
-ARG HAILORT_DEB
-ARG HAILORT_WHEEL
-COPY artifacts/ /tmp/hailo-artifacts/
 RUN source /usr/local/lib/edge-build-tools.sh && install-hailort
 COPY src/fall_detection_msgs/ src/fall_detection_msgs/
 COPY src/fall_detection_edge/ src/fall_detection_edge/

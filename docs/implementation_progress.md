@@ -72,3 +72,12 @@
 - 共通install-hailortを記述。将来のDockerビルドでdeb/wheelの版・ARM64/CPythonタグ・依存metadataを照合し、apt側Python依存を保持してpipをno-deps/no-indexに制限する。実deb/wheelが未提供なので対応版は固定せず、Hailo/NumPy/cv_bridge/OpenCVのnative ABIはrequires Pi verification。
 - READMEと環境準備文書を更新。4処理ノード、ブリッジ送信制御、msg/srv、設計v2.6、Composeの2サービス構成は変更していない。
 - ソースとGit差分の閲覧のみ。ビルド・テスト・lint・構文チェック・ROS/Docker実行・インストール・実機検証・コミット・Pushは未実施。Implementation complete; tests/build/hardware validation NOT RUN。次の指示まで停止する。
+
+## HailoRT 4.23.0のビルド時自動取得（2026-11-10）
+
+- ユーザー確認済みのPi 5 / Debian 13 ARM64 / HAILO8 / ホストPCIe driver・FW 4.23.0に合わせ、コンテナruntimeとcp312 ARM64 wheelを4.23.0固定。ホストは変更しない。
+- Hailo公式コミュニティの配布案内と、指定dev-public.hailo.aiの2 URLへのHTTPS HEAD 200を確認。公開SHA256は投稿・HTTPヘッダから確認できず、固定値を推測していない。本体ダウンロード・metadata読出し・インストールは今回未実施。
+- 共通install-hailortを固定HTTPS自動取得へ改修。取得失敗時は停止、リダイレクトもHTTPS限定、別版・ミラーへのfallbackなし。deb/wheelの版がともに4.23.0であること、ARM64/CPythonタグ・依存metadataの照合とpipのno-deps/no-indexを維持。終了trapで一時ファイルを削除する。
+- 両DockerfileからartifactsのCOPYとHAILORT_DEB/HAILORT_WHEELのARGを削除。通常版にcurlを明示追加。Composeと.env.exampleから旧2変数を撤去。README・環境準備文書・artifactsの説明を更新し、HEF/manifestは引き続き別途準備と明記。
+- 4処理ノード、EdgeRM API、ブリッジ送信制御、msg/srv、設計v2.6、2サービス構成は未変更。native ABI、実HEF互換、実通信・Future管理・全系10Hzはrequires Pi verification。
+- 今回は公開配布先の調査・ソース編集・静的差分確認のみ。ビルド・テスト・lint・構文チェック・ROS実行・Pi操作は未実施。コミット・Pushは今回のユーザー指示に従って行い、その後停止する。

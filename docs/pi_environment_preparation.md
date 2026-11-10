@@ -2,22 +2,22 @@
 
 調査日: 2026-11-10（JST）。対象: `feature/edge-pipeline`。
 
-**調査と、その結果に基づくDockerfile・共通補助スクリプトの静的修正のみ。Docker/colconビルド、テスト、lint、構文チェック、ROS実行、ハードウェア照会、インストール、コミット、Pushは行っていない。** 設計v2.6、処理アルゴリズム、Composeの2サービス構成は変更していない。
+**調査と、その結果に基づくDockerfile・設定・共通補助スクリプトの静的修正のみ。Docker/colconビルド、テスト、lint、構文チェック、ROS実行、ハードウェア照会、インストールは行っていない。** 今回の自動取得対応はユーザーの指示によりコミット・Pushする。設計v2.6、処理アルゴリズム、Composeの2サービス構成は変更していない。
 
 「確認済み」は公開ソースやメタデータで確認できた内容。「候補」は次のPi段階で評価する入力。「未確認」は配布物・非公開ソース・実機が必要な事項である。SHAが確定していることは、その組合せのビルド成功やハードウェア互換を意味しない。
 
 ## 1. 調査開始時の状態と必要ソフトウェア
 
-ローカルは作業ツリーがクリーンだった。HEADは`442477075621f0c5dc780a830b01e9f1947e318c`。GitHubの[`feature/edge-pipeline`先頭](https://api.github.com/repos/sht621/lcfall-ros2/commits?sha=feature%2Fedge-pipeline&per_page=1)も同じSHA（commit時刻2026-11-10 04:59:56 UTC）だった。pull/fetch/resetは行わず、既存コードを保持した。
+初回調査時は作業ツリーがクリーンだった。HEADは`442477075621f0c5dc780a830b01e9f1947e318c`。GitHubの[`feature/edge-pipeline`先頭](https://api.github.com/repos/sht621/lcfall-ros2/commits?sha=feature%2Fedge-pipeline&per_page=1)も同じSHA（commit時刻2026-11-10 04:59:56 UTC）だった。今回のHailoRT自動取得改修開始時は`b5f56f2`、作業ツリーはクリーン。既存の依存修正を保持した。
 
 | 要素 | 準備条件・候補 | 状態 |
 |---|---|---|
-| PiホストOS | Raspberry Pi 5向けUbuntu 24.04 LTS、64-bit ARM64 | 設計条件。実機OS/kernel/page sizeは未確認 |
+| PiホストOS | Debian 13、ARM64 | ユーザーの実機確認結果。今回は実機照会していない。kernel/page sizeは未確認 |
 | コンテナ | 通常版`ros:jazzy-ros-base`、EdgeRM版`ubuntu:24.04`から構築 | 現行Dockerfile。ベースdigest、aptパッケージ版は未固定 |
 | ROS | Jazzy、インストール先`/opt/ros/jazzy` | Nobleのamd64/arm64向けdebがあることは[公式インストールソース](https://github.com/ros2/ros2_documentation/blob/jazzy/source/Installation/Ubuntu-Install-Debs.rst)で確認 |
 | Python | コンテナのCPython 3.12系、ROSとHailo wheelで共用 | 実イメージのpatch版とNumPy ABIは未確認。Pythonを3.11へ差し替える方針ではない |
 | SDK/ROSドライバ | 下表の4つのリリースcommit | 公開ソースに基づく候補。実機未検証 |
-| HailoRT/PCIe driver | Hailo-8向け4.24.0を整合させる候補 | ソースtag確認済み。ホスト既存版・deb/wheel未提供のため採用版は未確定 |
+| HailoRT/PCIe driver | Hailo-8（HAILO8）、ホストdriver/FW 4.23.0、コンテナruntime/wheel 4.23.0固定 | ホストはユーザー確認済みで変更しない。配布URLのHTTPS HEAD 200確認済み。コンテナ動作は未検証 |
 | Docker/Compose | ARM64、BuildKit、Dockerfile heredoc/cache/secret mounts、Compose v2のbuild secrets（environment）を扱える環境 | Piの導入版は未確認。現在Docker操作なし |
 | メモリ/並列数 | `BUILD_JOBS=1`から開始、colconは逐次 | Pi RAM/空き容量/冷却/必要swapは未確認 |
 
@@ -70,7 +70,7 @@ GitHub APIで観測した各default branchの最新commitは以下。これは�
 
 ## 3. 通常ROS版のビルド前提とDockerfile照合
 
-通常版はEdgeRMの認証・モジュール・ソースビルドを要求しない。`.env`には候補4 SHA、実在するHailo配布物名、実デバイスパス/数値GID、Domainを準備する。`.env.example`をそのまま実機環境とみなさない。
+通常版はEdgeRMの認証・モジュール・ソースビルドを要求しない。`.env`には候補4 SHA、実デバイスパス/数値GID、Domainを準備する。HailoRT配布物名の指定・事前配置は不要で、ビルド時に公式HTTPS配布先への接続が必要。`.env.example`をそのまま実機環境とみなさない。
 
 - `git-clone()`は完全SHAをrefとしてfetchし、一致確認後にcheckoutする。SDK/driverは専用キャッシュ内、source dependencyは`--packages-up-to`で扱う。ソースSHA固定とapt/pip/ベースdigest/上流CMakeのネット取得まで固定した再現環境とは別である。
 - SDKをROS driverより先にinstallし、ROSをsourceして自作msgとdriver依存を含めて構築する流れは、選定したソースの要求とおおむね対応する。
@@ -123,52 +123,53 @@ GitHub APIで観測した各default branchの最新commitは以下。これは�
 
 ## 5. Hailo-8 runtime / HEFの準備
 
-### HailoRTの候補と未確認点
+### HailoRT 4.23.0の固定と配布状況
 
-[現行HailoRTのREADME](https://github.com/hailo-ai/hailort/blob/master/README.md)はmasterをHailo-10/15向けとし、Hailo-8/8Lにはhailo8 branchを指定する。単に最新の5.xを選ばない。
+ユーザーがPi 5上で確認したHAILO8、Debian 13 ARM64、ホストPCIeドライバ/FW 4.23.0を前提に、コンテナ側のruntime/wheelを**4.23.0固定**とする。以前の4.24.0ソース候補は採用しない。ホスト側への変更は行わない。
 
-| 要素 | 確認できた候補 | 判断 |
+[Hailo公式コミュニティの案内](https://community.hailo.ai/t/system-freeze-using-hailo8-pcie-card-on-a-beelink-eq14-n150-with-frigate-container-on-debian-13/17726/12)は4.23.0のARM64 runtimeとcp312-cp312を含むwheel形式を列挙している。投稿内はHTTPリンクだが、今回は下記HTTPS URLに対して証明書検証を有効にしたHEAD要求を行い、2026-11-10 07:44:30 UTCに両方のHTTP/2 200を確認した。
+
+| 用途 | 固定HTTPS URL | 観測したContent-Length |
 |---|---|---|
-| HailoRT | v4.24.0 / `63adffec12da88f1e7cfdc07f2e07681671e83e8` | [tag](https://api.github.com/repos/hailo-ai/hailort/git/ref/tags/v4.24.0)、Hailo-8 branch系。runtimeソースの候補 |
-| PCIe driver | v4.24.0 / `5d9ce886bd1c91451e3e0a9c2e2e5ee07e5bcc63` | [tag](https://api.github.com/repos/hailo-ai/hailort-drivers/git/ref/tags/v4.24.0)。ホストのkernel headersと一致して構築/導入する版は後で判断 |
-| Model Zoo | v2.19.0 / `3f19ede8673c0d050bca24ea02dd6606d52f816c` | [tag](https://api.github.com/repos/hailo-ai/hailo_model_zoo/git/ref/tags/v2.19.0)。[公式設定](https://github.com/hailo-ai/hailo-apps/blob/main/hailo_apps/config/config.yaml)は4.24.xとv2.19.0の対応を記載 |
+| runtime deb | [hailort_4.23.0_arm64.deb](https://dev-public.hailo.ai/2025_10/Hailo8/hailort_4.23.0_arm64.deb) | 6,877,660 bytes |
+| cp312 ARM64 wheel | [hailort-4.23.0-cp312-cp312-linux_aarch64.whl](https://dev-public.hailo.ai/2025_10/Hailo8/hailort-4.23.0-cp312-cp312-linux_aarch64.whl) | 9,932,383 bytes |
 
-**Pi 5なら必ず4.24.0という要件ではない。** 実ホストの既存driver/FW、入手できるUbuntu向けruntime/wheel、実HEFのcompiler世代を合わせて版を決める。runtime/deb/wheel/driverを同一のリリース系列で揃えることを初期条件とし、例外的な組合せはvendorの互換表なしに採用しない。
+確認できたのは公式案内・HTTPS到達性・HEAD時点の配布状況と版を示すファイル名。**本体のダウンロードやインストール、metadata/ELFの読出しは今回していない**。上記サイズは観測値で、内容の固定checksumには使わない。投稿とHTTPヘッダから配布元のSHA256は確認できず、固定値は記載しない。multipart ETagもSHA256として扱わない。同じURLの内容不変性まで保証した再現環境ではない。
 
-4.24.0の[Python setup](https://github.com/hailo-ai/hailort/blob/63adffec12da88f1e7cfdc07f2e07681671e83e8/hailort/libhailort/bindings/python/platform/setup.py)はlinux_aarch64を含む。Python拡張の[CMake](https://github.com/hailo-ai/hailort/blob/63adffec12da88f1e7cfdc07f2e07681671e83e8/hailort/libhailort/bindings/python/src/CMakeLists.txt)は通常経路でHailoRT 4.24.0 EXACTを要求する。既存backendのVStream系API名は同版の[Python bindingソース](https://github.com/hailo-ai/hailort/blob/63adffec12da88f1e7cfdc07f2e07681671e83e8/hailort/libhailort/bindings/python/platform/hailo_platform/pyhailort/pyhailort.py)に存在するが、実行適合は未検証。
-
-ただし、これだけで**公式のUbuntu 24.04 ARM64 / CPython 3.12用wheelが配布されていると断定しない**。公開GitHub releaseの4.24.0 assets一覧は空だった。Developer Zone配布カタログの詳細は今回取得できず、実deb/wheelの名称・hash・Requires-Python・共有ライブラリ/NumPy依存は未確認。
-
-Raspberry Pi向け[公式AI手順](https://www.raspberrypi.com/documentation/computers/ai.html)やHailo Appsのhailo-all推奨はRaspberry Pi OS向けの導入文脈であり、Nobleコンテナへ無条件に導入する根拠にしない。[CanonicalのUbuntu 24.04記事](https://ubuntu.com/blog/hackers-guide-to-the-raspberry-pi-ai-kit-on-ubuntu)も古いHailo-8Lの開発例で、今回のHailo-8・4.24.0・Python3.12の検証結果ではない。記事内のPython差替えをJazzy環境へ転用しない。
+4.23.0の[公開Python setup.py](https://github.com/hailo-ai/hailort/blob/v4.23.0/hailort/libhailort/bindings/python/platform/setup.py)はversion=4.23.0、linux_aarch64、依存numpy<2を記載する。実wheelのmetadata・Ubuntu 24.04適合・native ABIはこれと別に確認が必要。別版・非公式ミラーへの自動切替やwheelの代替ソースビルドは行わない。
 
 ### DockerfileのHailoRT導入方針（今回記述のみ）
 
-両Dockerfileはbuild-tools.shの`install-hailort`を呼ぶ。将来のビルドで、実debのPackage=hailort/Architecture=arm64、CPython 3.12、wheelの対応タグ・Name/Version/Requires-Python/Requires-Dist、debのupstream版とwheel版の一致を照合する。Debian epoch/revisionを除いた版を比較し、未対応の版表記や要件は無理に補正せず停止させる。今回この処理を実行したわけではない。
+両Dockerfileはbuild-tools.shの`install-hailort`を呼ぶ。4.23.0と配布先は共通関数内の固定値で、環境変数やbuild argによる変更口は設けない。将来のビルドでHTTPSからdeb/wheelを取得し、失敗やHTTPエラーで停止する。リダイレクトもHTTPSに限定する。一時ディレクトリは同じRUN内の終了trapで削除し、取得ファイルをイメージへ残さない。`COPY artifacts/`と旧2変数は撤去した。
 
-- NumPy・OpenCVはUbuntu aptから導入。Hailo v4.24.0の公開setup.pyが列挙するargcomplete/contextlib2/future/netaddr/netifacesもaptで準備し、metadata読出し用にpython3-packagingを追加する。4.24.0を配布物の採用版として固定する変更ではない。
+実debのPackage=hailort/Architecture=arm64、CPython 3.12、wheelの対応タグ・Name/Version/Requires-Python/Requires-Dist、debのupstream版とwheel版が両方4.23.0であることを照合する。Debian epoch/revisionを除いた版を比較し、不整合は停止させる。今回この処理を実行したわけではない。
+
+- NumPy・OpenCVはUbuntu aptから導入。Hailo v4.23.0の公開setup.pyが列挙するargcomplete/contextlib2/future/netaddr/netifacesもaptで準備し、metadata読出し用にpython3-packagingを使用する。numpy<2を含む実wheelの要件はmetadataから照合する。
 - 実wheelの依存がapt導入済みのPython distributionと合わなければ停止し、追加依存や版を別途判断する。pipは`--no-deps --no-index`で指定wheelだけを導入し、依存解決でシステムNumPyを置換しない。
 - metadata一致はnative ABIの証明ではない。実wheelのELF/libhailort/glibc/libstdc++/NumPyビルドABIと、aptのcv_bridge/OpenCV/NumPyの組合せは未確認。wheelがNumPy 2等を必要とする場合も、その場でNumPyを更新せず対応配布物を再検討する。
 - debのDepends/maintainer script、Ubuntu 24.04適合、ホストPCIe driver/FWとの整合は実配布物とPiが必要。ホストdriverをコンテナ内へ導入しない。ヘルパーはHailo・NumPy・cv_bridgeのnative moduleをimportして実動作を判定するものではない。
 
 ### 入手・配置するファイル
 
-現時点で`artifacts/`と`models/`にはREADMEしかない。以下の名前のうち、`<version>`は**必要形式の説明**であって、配布実在を確認したファイル名ではない。未提供の値は.envへ埋めない。
+HailoRTのdeb/wheelは事前配置不要。**YOLOv8m-PoseのHEFと対応manifestは引き続き別途準備する**。現在、実モデルとmanifestは未提供。
 
 | 用途 | 入手先・必要形式 | 配置・未確認事項 |
 |---|---|---|
-| ユーザー空間runtime deb | [Hailo Developer Zone](https://hailo.ai/developer-zone/software-downloads/)のHailo-8 / Linux ARM64。例示形式`hailort_<version>_arm64.deb` | `artifacts/`へ実ファイル、HAILORT_DEBにそのbasename。Package/Version/Architecture=arm64、Depends、配布hashを確認 |
-| Python wheel | 同じreleaseのPyHailoRT。必要ABI形式`hailort-<version>-cp312-cp312-linux_aarch64.whl`相当 | artifactsへ実wheel、HAILORT_WHEELにbasename。cp311/x86_64用は不可。実metadata/ELFとlibhailort版を確認 |
-| ホストPCIe driver/FW | [公式driver](https://github.com/hailo-ai/hailort-drivers/tree/v4.24.0)とvendor手順。既存host版を先に確認 | コンテナにkernel driverを導入しない。Ubuntu Pi kernel headers/ページサイズ、FW、udev、再起動要否を後の許可段階で確認 |
+| ユーザー空間runtime deb | 上記4.23.0 ARM64 HTTPS URLからビルド中に取得 | 手動配置不要。実Package/Version/Architecture/Dependsはビルド時の確認対象 |
+| Python wheel | 上記4.23.0 cp312 ARM64 HTTPS URLからビルド中に取得 | 手動配置不要。実metadata/ELFとlibhailort/NumPy ABIは未検証 |
+| ホストPCIe driver/FW | ユーザー確認済み4.23.0を維持 | ホスト変更・コンテナへのkernel driver導入は行わない |
 | YOLOv8m-Pose HEF | 次項の公式Hailo-8モデル配布表、または提供済みモデルの正しい出所 | `models/yolov8m_pose.hef`。実バイナリ/hash/target/FW互換は未確認 |
 | manifest | このリポジトリの`pose_model.example.yaml`と実HEF/元モデルの照合から作成 | `models/pose_model.yaml`。単なる例のコピーやverified_for_hefだけの変更は不可 |
 
-wheelが入手できずソースビルドが必要なら、それは別途許可が必要な準備作業であり、今回は代替ビルドを行わない。GStreamer/TAPPASのPython `hailo`モジュールと、今回の`hailo_platform`を混同しない。TAPPAS導入はこの直接HailoRT経路の必須条件として追加しない。
+GStreamer/TAPPASのPython `hailo`モジュールと、今回の`hailo_platform`を混同しない。TAPPAS導入はこの直接HailoRT経路の必須条件として追加しない。
 
 ### HEFとmanifestの照合
 
 [Model Zoo Hailo-8 pose表](https://github.com/hailo-ai/hailo_model_zoo/blob/3f19ede8673c0d050bca24ea02dd6606d52f816c/docs/public_models/HAILO8/HAILO8_pose_estimation.rst)には次のHEFリンクがある（**リンクをソースで確認しただけで、ダウンロード・読出しはしていない**）。
 
 [YOLOv8m-Pose / Hailo-8 / v2.19.0 HEF候補](https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v2.19.0/hailo8/yolov8m_pose.hef)
+
+このリンクは前回調査の候補であり、今回固定するHailoRT 4.23.0への互換は未確認。compiler/runtime対応を確認した実HEFとmanifestを別途選定する。自動取得・自動採用はしない。
 
 同版の[network設定](https://github.com/hailo-ai/hailo_model_zoo/blob/3f19ede8673c0d050bca24ea02dd6606d52f816c/hailo_model_zoo/cfg/networks/yolov8m_pose.yaml)は640×640×3入力、20/40/80の3スケールごとに64/1/51 channelの出力情報を持つ。既存raw decoderの想定形状に対応する候補だが、**HEFの実VStream名、最終出力形式、値の意味は確定していない**。[alls script](https://github.com/hailo-ai/hailo_model_zoo/blob/3f19ede8673c0d050bca24ea02dd6606d52f816c/hailo_model_zoo/cfg/alls/generic/yolov8m_pose.alls)には入力正規化と一部出力のsigmoid指定がある。二重正規化や二重sigmoidを避ける。
 
@@ -191,8 +192,8 @@ wheelが入手できずソースビルドが必要なら、それは別途許可
 
 以下は未実施であり、今回は問い合わせコマンドも実行していない。
 
-- Ubuntuリリース/arm64、Pi kernelの完全版・headers・ページサイズ、RAM・空きディスク・電源・冷却。Hailo driver構築対象は**ホストkernel**で、コンテナのNoble userspaceとは別。
-- 実アクセラレータがHailo-8（26TOPS）であること。PCIe/HAT/FPC接続、既存driver/runtime/FWの版、`/dev/hailo0`等の実パスと所有GID。
+- ユーザー確認済みDebian 13 ARM64に対して、Pi kernelの完全版・ページサイズ、RAM・空きディスク・電源・冷却を記録。ホストkernelとコンテナのNoble userspaceは別。今回kernel/driverを変更しない。
+- ユーザー確認済みHAILO8 / driver・FW 4.23.0に対して、PCIe/HAT/FPC接続と`/dev/hailo0`等の実パス・所有GIDを後の許可段階で確認する。
 - D455実機/FW、USB3接続、`/dev/bus/usb/BBB/DDD`の実パスと所有GID/udev。再接続時の番号変更。コンテナの非root UID1000とgroup_addの実効権限。
 - MID-360への実NIC/IP/UDPポート、JSON中の旧参照IP、host networkと競合。元stampの基準がRGBと比較可能か。TFとSDK内extrinsicの二重変換がないか。
 - ROS_DOMAIN_IDとサーバの型package、サービス名、EdgeRM runtime/URLの一致。EdgeRMトークンはビルド用Secretでありruntimeへ渡さない。
@@ -201,7 +202,7 @@ wheelが入手できずソースビルドが必要なら、それは別途許可
 ## 7. 未解決事項・開始条件
 
 1. **EdgeRMソースへのアクセス**。ref/commit/helper API/実依存閉包/COLCON_IGNORE整合を未確認のまま確定しない。
-2. **Hailo配布物とホスト版**。4.24.0はソース候補。実ARM64 deb・cp312 wheel・host driver/FWとHEFが揃うまでHAILORT_DEB/HAILORT_WHEELは空欄。
+2. **Hailo配布物とABI**。ホストdriver/FWに合わせruntime/wheelを4.23.0固定。HTTPS HEAD 200確認済みで事前配置は不要。公開SHA256、本体metadata/ELF、Ubuntu 24.04上のnative ABI、実HEF互換は未確認。
 3. **修正したDocker依存の実確認**。RealSense移転URL、rclcpp_action/rosbag2の明示要求、依存列挙・除外、Hailoのpip依存解決禁止をソース上修正済み。private forkの依存充足と実配布物/native ABIは未確認。
 4. **追加source lock**。private forkに不足するpackageと互換版が判明してから5変数を埋める。公開repoが存在するだけでは採用SHAを決定しない。
 5. **実機設定**。デバイス/GID、Livox IP、取付TF校正、カメラサイズ、時計、モデルmanifestは未確定。
@@ -211,8 +212,8 @@ wheelが入手できずソースビルドが必要なら、それは別途許可
 ユーザーがPi段階と個々の導入・ビルド・検証を明示的に許可した後に進める。依存不足のままビルドに突入せず、各段階の結果を次の条件にする。
 
 1. PiのOS/arch/kernel/headers/RAM/電源/冷却を記録。既存Hailo driver/FWとD455/USB、MID-360 NICの状態を確認する。
-2. Hailoの同一系列driver/runtime/wheelとHEFの出所・hash・ABIを確定。ホストdriverの導入/変更が必要なら別途許可のもと実施し、再起動後にdeviceアクセスを確認する。
-3. 通常版向け`.env`を候補4 SHAと実ファイル名/デバイス/GID/Domainで準備。今回のDocker修正内容と実配布物のmetadata/依存/ABIを照合し、未解決のHailo条件を確定する。
+2. ホストdriver/FW 4.23.0を維持し、固定runtime/wheelと実HEFの出所・ABI・互換を確認する。配布元SHA256が入手できた場合だけ照合値を追加する。ホストdriverの更新はこの手順に含めない。
+3. 通常版向け`.env`を候補4 SHAと実デバイス/GID/Domainで準備。HailoRTファイル名の設定は不要。ビルド時の固定HTTPS配布先への接続条件を準備し、実HEF/manifestを別途配置する。
 4. まず通常ROS版だけをビルドする。依存解決、msg/srv生成、driver/自作ノードのビルド結果を記録し、失敗時はここで止める。
 5. D455 RGBのみ、Livox PointCloud2の実topic/QoS/frame_id/tag型、元stampの時計基準を確認。TF/ROIと正常空点群、人物0人/推論エラーの区別、manifest復元を確認する。
 6. `ENABLE_BRIDGE=false`で全処理経路と元stampの厳密集約を確認。到着順・欠落・期限・重複・再起動/空結果について、別途許可された検証を行う。

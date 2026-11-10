@@ -7,8 +7,6 @@ ARG LIBREALSENSE_COMMIT
 ARG REALSENSE_ROS_COMMIT
 ARG LIVOX_SDK2_COMMIT
 ARG LIVOX_DRIVER_COMMIT
-ARG HAILORT_DEB
-ARG HAILORT_WHEEL
 ARG BUILD_JOBS=1
 ENV PYTHONUNBUFFERED=1 \
     ROS_INSTALL_BASE=/opt/ros/jazzy WORKSPACE_DIRECTORY=/opt/edge_ws \
@@ -19,7 +17,7 @@ ENV PYTHONUNBUFFERED=1 \
 COPY build-tools.sh /usr/local/lib/edge-build-tools.sh
 RUN test "$(dpkg --print-architecture)" = arm64 && \
     apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates git cmake build-essential pkg-config python3-pip python3-dev \
+    ca-certificates curl git cmake build-essential pkg-config python3-pip python3-dev \
     python3-colcon-common-extensions python3-numpy python3-opencv python3-yaml \
     python3-packaging python3-argcomplete python3-contextlib2 python3-future python3-netaddr python3-netifaces \
     libusb-1.0-0-dev libudev-dev libssl-dev libcurl4-openssl-dev \
@@ -60,7 +58,6 @@ git-clone https://github.com/Livox-SDK/livox_ros_driver2.git "$LIVOX_DRIVER_COMM
 cp -a . /opt/edge_ws/src/livox_ros_driver2
 cp /opt/edge_ws/src/livox_ros_driver2/package_ROS2.xml /opt/edge_ws/src/livox_ros_driver2/package.xml
 BUILD
-COPY artifacts/ /tmp/hailo-artifacts/
 RUN source /usr/local/lib/edge-build-tools.sh && install-hailort
 COPY src/fall_detection_msgs/ src/fall_detection_msgs/
 COPY src/fall_detection_edge/ src/fall_detection_edge/

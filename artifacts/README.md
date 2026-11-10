@@ -1,9 +1,9 @@
-# Pi build inputs (not bundled)
+# HailoRT配布物の事前配置は不要
 
-requires Pi verification. Supply an ARM64 HailoRT runtime `.deb` and its matching
-CPython 3.12 / Linux ARM64 `hailort` / `hailo_platform` Python `.whl` here.
-Both must match the Pi host Hailo-8 PCIe kernel driver. No automatic download,
-version fallback, driver installation or ABI claim is provided.
+両Dockerfileは共通の`install-hailort()`から、Hailo公式配布先の4.23.0
+ARM64 runtime debとCPython 3.12 ARM64 wheelをHTTPSで自動取得します。
+このディレクトリはビルド入力としてCOPYせず、旧HAILORT_DEB/HAILORT_WHEELも不要です。
+取得先・確認状況は[環境準備文書](../docs/pi_environment_preparation.md)を参照してください。
 
-Compose requires the exact basenames in HAILORT_DEB and HAILORT_WHEEL. Binary
-artifacts are gitignored. This is a build-input directory, not a host installer.
+ホストのPCIeドライバ・FWは4.23.0を維持します。ビルド・ABI・実機通信は未検証です。
+YOLOv8m-PoseのHEFと対応manifestは引き続き`models/`へ別途準備してください。

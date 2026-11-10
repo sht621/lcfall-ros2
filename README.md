@@ -1,6 +1,6 @@
 # Raspberry Pi 5 エッジ観測パイプライン
 
-通常ROS 2 Jazzy版とEdgeRM対応Jazzy版で、同じRGB–LiDARパイプラインを使用します。対象はUbuntu 24.04 ARM64 / Raspberry Pi 5 / Hailo-8 / RealSense D455 RGB / Livox MID-360です。正本の[設計v2.6](docs/edge_pipeline_design_v2.6.md)は変更していません。
+通常ROS 2 Jazzy版とEdgeRM対応Jazzy版で、同じRGB–LiDARパイプラインを使用します。対象はRaspberry Pi 5 / Hailo-8 / RealSense D455 RGB / Livox MID-360です。ユーザー確認済みのホストはDebian 13 ARM64、PCIeドライバ・FWは4.23.0。コンテナはUbuntu 24.04 ARM64 / Python 3.12です。正本の[設計v2.6](docs/edge_pipeline_design_v2.6.md)は変更していません。
 
 **今回行ったのはソース・設定の修正と閲覧による差分確認のみです。ビルド・テスト・lint・構文チェック・ROS/Docker実行・実機検証は未実施です。以下の操作は、ユーザーがPi段階を開始して明示的に許可した後にのみ行います。**
 
@@ -50,14 +50,20 @@ MID-360 ──┘   ATS      └─ /sync/points ─ lidar_preprocess_node ─ /
 | 設定 | 内容 |
 |---|---|
 | `LIBREALSENSE_COMMIT`, `REALSENSE_ROS_COMMIT`, `LIVOX_SDK2_COMMIT`, `LIVOX_DRIVER_COMMIT` | 完全な小文字40桁コミットSHA。[環境準備文書](docs/pi_environment_preparation.md)に根拠を記録したリリース候補を設定済み。Piでのビルド・実機互換は未確認 |
-| `HAILORT_DEB`, `HAILORT_WHEEL` | `artifacts/`内の実ファイル名。HailoホストPCIeドライバと一致するARM64 runtime deb、CPython 3.12/Linux ARM64 wheel |
 | `BUILD_JOBS` | 初期1。CMake/Makeの並列数。colconはパッケージを逐次ビルドし、Piのメモリ使用を抑える |
 | `HAILO_DEVICE`, `REALSENSE_USB_DEVICE`, `HAILO_GID`, `USB_GID` | 実Hailoデバイス、D455のUSBパス、アクセスを許可する数値GID |
 | `ROS_DOMAIN_ID` | PiとGPUサーバで合わせるDomain |
 | `ENABLE_BRIDGE` | サービスを使う場合true。サーバがない場合や最終トピックのみ利用する場合false |
 | `FRAME_SERVICE_NAME` | 通常ROS/EdgeRM共通のサービス名。受信サーバと合わせる |
 
-Hailoカーネルドライバはホスト側に導入します。この作業ではドライバをインストールしていません。実HEFと対応manifestは[models/](models/README.md)へ置きます。[manifest例](src/fall_detection_edge/config/pose_model.example.yaml)は未設定値を含み、意図して起動を拒否します。入力形状・量子化・出力名・モデル本来の検出/NMS条件・欠損定義の確認が必要で、実HEFによって専用decoderの追加が必要です。
+HailoRTは両Dockerfileから共通処理で**4.23.0固定**のruntime debとcp312 ARM64 wheelをビルド中に自動取得します。`artifacts/`への事前配置と旧`HAILORT_DEB` / `HAILORT_WHEEL`設定は不要です。既存`.env`からこれら2変数を削除できます。ホストのPCIeドライバ・FWは変更せず、コンテナにもカーネルドライバをインストールしません。
+
+取得先は[公式コミュニティの案内](https://community.hailo.ai/t/system-freeze-using-hailo8-pcie-card-on-a-beelink-eq14-n150-with-frigate-container-on-debian-13/17726/12)に基づく次のHTTPS URLです。両URLのHEAD応答は200を確認済みですが、ファイル本体のmetadata・native ABI・ビルド成功は未確認です。公開SHA256は確認できていないため固定checksumは設定していません。
+
+- [HailoRT 4.23.0 ARM64 deb](https://dev-public.hailo.ai/2025_10/Hailo8/hailort_4.23.0_arm64.deb)
+- [HailoRT 4.23.0 CPython 3.12 ARM64 wheel](https://dev-public.hailo.ai/2025_10/Hailo8/hailort-4.23.0-cp312-cp312-linux_aarch64.whl)
+
+**YOLOv8m-Poseの実HEFと対応manifestは引き続き別途準備**して[models/](models/README.md)へ置きます。[manifest例](src/fall_detection_edge/config/pose_model.example.yaml)は未設定値を含み、意図して起動を拒否します。入力形状・量子化・出力名・モデル本来の検出/NMS条件・欠損定義とHailoRT 4.23.0への適合確認が必要で、実HEFによって専用decoderの追加が必要です。
 
 両DockerfileのRealSense取得先は正式な`realsenseai/librealsense` / `realsenseai/realsense-ros`です。選定済みの固定SHAは維持しています。RealSenseのCMake必須依存`rclcpp_action`とLivoxの宣言済み実行時依存`rosbag2`は、通常版では公式ROS deb、EdgeRM版では選択した改変ROSのソースから準備する構成です。録画処理を起動する変更ではありません。
 
@@ -146,7 +152,7 @@ EdgeRM版では`.env`の`EDGERM_URL`、`EDGERM_RUNTIME_NAME`、`EDGERM_VERBOSE`�
 
 - `git-clone(repository, ref, commit)`は専用BuildKitソースキャッシュ内でだけ動作し、既存checkoutの更新、固定commitへの切替、submodule同期・取得を行います。reset/cleanは実パスが`/var/cache/edge-build/`配下の場合だけ許可します。通常ROS版ではSDK/ドライバ取得、EdgeRM版ではそれに加えて改変ROSと不足依存の取得に使用します。取得結果はイメージ内`/opt/edge-source-locks/`へ記録します。
 - `colcon-build(base_path, install_base, targets...)`はテスト無効化、共通CMake設定、逐次パッケージビルドと`BUILD_JOBS`管理をまとめます。`--packages-up-to`でソース依存も対象にし、通常ROS版のドライバ/アプリ、EdgeRM版のROS underlay・ドライバ・アプリで使用します。
-- `install-hailort()`は将来のイメージビルド時に、実debのARM64/版、wheelのCPython 3.12対応タグ・版・依存metadataを照合します。既知のPython依存はaptで用意し、pipは`--no-deps --no-index`で指定wheelだけを導入するため、依存解決でaptのNumPyを置換しません。実配布物がないため、この処理とnative ABI適合は未検証です。metadata不整合時は停止し、未確認のHailoRT/NumPy版へ自動変更しません。
+- `install-hailort()`は4.23.0のdeb/wheelをHTTPSで一時ディレクトリへ取得し、実debのARM64/版、wheelのCPython 3.12対応タグ・版・依存metadataを照合します。取得失敗・版違い・要件不整合でビルドを停止し、別版やミラーへ切り替えません。既知のPython依存はaptで用意し、pipは`--no-deps --no-index`で指定wheelだけを導入するため、依存解決でaptのNumPyを置換しません。終了時にダウンロード一時ファイルを削除します。この処理とnative ABI適合は未検証です。
 
 [ros_entrypoint.sh](ros_entrypoint.sh)は両イメージで共通です。必須のROS setupとworkspace setupの存在を確認し、順に読み込んで`exec "$@"`します。欠けている場合は理由を示して起動を失敗させます。旧`docker/entrypoint.sh`と二重の生成処理は残していません。
 
