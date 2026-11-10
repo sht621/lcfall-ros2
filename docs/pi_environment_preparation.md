@@ -16,7 +16,7 @@
 | コンテナ | 通常版`ros:jazzy-ros-base`、EdgeRM版`ubuntu:24.04`から構築 | 現行Dockerfile。ベースdigest、aptパッケージ版は未固定 |
 | ROS | Jazzy、インストール先`/opt/ros/jazzy` | Nobleのamd64/arm64向けdebがあることは[公式インストールソース](https://github.com/ros2/ros2_documentation/blob/jazzy/source/Installation/Ubuntu-Install-Debs.rst)で確認 |
 | Python | コンテナのCPython 3.12系、ROSとHailo wheelで共用 | 実イメージのpatch版とNumPy ABIは未確認。Pythonを3.11へ差し替える方針ではない |
-| SDK/ROSドライバ | 下表の4つのリリースcommit | 公開ソースに基づく候補。実機未検証 |
+| SDK/ROSドライバ | 下表の3つのリリースcommitとLivox SDK2の上流修正commit | 公開ソースに基づく固定候補。実機未検証 |
 | HailoRT/PCIe driver | Hailo-8（HAILO8）、ホストdriver/FW 4.23.0、コンテナruntime/wheel 4.23.0固定 | ホストはユーザー確認済みで変更しない。配布URLのHTTPS HEAD 200確認済み。コンテナ動作は未検証 |
 | Docker/Compose | ARM64、BuildKit、Dockerfile heredoc/cache/secret mounts、Compose v2のbuild secrets（environment）を扱える環境 | Piの導入版は未確認。現在Docker操作なし |
 | メモリ/並列数 | `BUILD_JOBS=1`から開始、colconは逐次 | Pi RAM/空き容量/冷却/必要swapは未確認 |
@@ -34,16 +34,16 @@ GitHub APIで観測した各default branchの最新commitは以下。これは�
 
 ## 2. ROSドライバ・SDKの固定commit候補
 
-以下はGitHub `git/ref/tags/...`で解決した**commit object**の40文字SHA。annotated tag objectを誤ってlockへ入れたものではない。`.env.example`へはこの4件だけを「ソース確認済み・実機未検証の候補」として反映した。
+以下は公式ソースで確認した40文字のcommit SHA。RealSense 2件とLivox Driverはタグのcommit object、Livox SDK2はv1.3.1後のUbuntu 24.04修正commitを固定する。annotated tag objectをlockへ入れたものではない。ビルド・実機動作は未検証。
 
 | 変数 | 正確な取得先 | tag | 固定候補SHA |
 |---|---|---|---|
 | `LIBREALSENSE_COMMIT` | `https://github.com/realsenseai/librealsense.git` | `v2.56.4` | `5af97a58423ec11822e8d951d37d9c6945a09a24` |
 | `REALSENSE_ROS_COMMIT` | `https://github.com/realsenseai/realsense-ros.git` | `4.56.4` | `bafc21080c5c8e259dadbb309797949aee0dd950` |
-| `LIVOX_SDK2_COMMIT` | `https://github.com/Livox-SDK/Livox-SDK2.git` | `v1.3.1` | `f5d9375f84efe2b15bc0a052d3e18482ed13adf4` |
+| `LIVOX_SDK2_COMMIT` | `https://github.com/Livox-SDK/Livox-SDK2.git` | v1.3.1後の修正commit（SDK内表記1.3.3） | `68ae1e1dc77f61f03c95d7c2809831e198d0aedd` |
 | `LIVOX_DRIVER_COMMIT` | `https://github.com/Livox-SDK/livox_ros_driver2.git` | `1.2.6` | `13eb05e4e6dd7a765b934d0c5fd6236676a57b49` |
 
-タグ解決根拠: [SDK tag](https://api.github.com/repos/realsenseai/librealsense/git/ref/tags/v2.56.4)、[ROS wrapper tag](https://api.github.com/repos/realsenseai/realsense-ros/git/ref/tags/4.56.4)、[Livox SDK tag](https://api.github.com/repos/Livox-SDK/Livox-SDK2/git/ref/tags/v1.3.1)、[Livox driver tag](https://api.github.com/repos/Livox-SDK/livox_ros_driver2/git/ref/tags/1.2.6)。
+固定根拠: [SDK tag](https://api.github.com/repos/realsenseai/librealsense/git/ref/tags/v2.56.4)、[ROS wrapper tag](https://api.github.com/repos/realsenseai/realsense-ros/git/ref/tags/4.56.4)、[Livox SDK修正commit](https://github.com/Livox-SDK/Livox-SDK2/commit/68ae1e1dc77f61f03c95d7c2809831e198d0aedd)、[Livox driver tag](https://api.github.com/repos/Livox-SDK/livox_ros_driver2/git/ref/tags/1.2.6)。
 
 ### librealsense v2.56.4
 
@@ -59,14 +59,17 @@ GitHub APIで観測した各default branchの最新commitは以下。これは�
 - `/opt/edge_ws/src`へ配置し、camera_msgsも依存としてビルドする現行`--packages-up-to`と整合する。自作LaunchがD455のRGBのみを選択するが、ドライバ自体は汎用実装としてビルドされる。
 - Pi ARM64上の実動作、ROS parameter名・出力topic・時計、USB権限、改変版ROSに対するABI適合は未確認。
 
-### Livox SDK2 v1.3.1 + Driver 1.2.6
+### Livox SDK2 68ae1e1（SDK内表記1.3.3）+ Driver 1.2.6
 
-- [Driver 1.2.6リリース](https://github.com/Livox-SDK/livox_ros_driver2/releases/tag/1.2.6)はUbuntu 24.04/Jazzy対応を明記する。SDKはROS非依存であり「SDK自身がJazzy認定」という意味ではない。[SDK v1.3.1](https://github.com/Livox-SDK/Livox-SDK2/releases/tag/v1.3.1)と同時期のMID-360系対応リリースを組み合わせる候補とした。Pi上の組合せ認定は未確認。
-- SDKの[CMake](https://github.com/Livox-SDK/Livox-SDK2/blob/f5d9375f84efe2b15bc0a052d3e18482ed13adf4/CMakeLists.txt)はC++11/pthreadベース。[sdk_core](https://github.com/Livox-SDK/Livox-SDK2/blob/f5d9375f84efe2b15bc0a052d3e18482ed13adf4/sdk_core/CMakeLists.txt)は静的/共有ライブラリとheaderをinstallする。現行Dockerの先行SDK installとldconfig、driverが要求する`/usr/local/lib/liblivox_lidar_sdk_shared.so`・headerはソース上対応する。
+- [Driver 1.2.6リリース](https://github.com/Livox-SDK/livox_ros_driver2/releases/tag/1.2.6)はUbuntu 24.04/Jazzy対応を明記する。Driverは`13eb05e4e6dd7a765b934d0c5fd6236676a57b49`を維持。SDKはROS非依存であり「SDK自身がJazzy認定」という意味ではない。
+- SDKは旧v1.3.1固定`f5d9375f84efe2b15bc0a052d3e18482ed13adf4`から、その直後の公式commit `68ae1e1dc77f61f03c95d7c2809831e198d0aedd`へ更新。[公式差分](https://github.com/Livox-SDK/Livox-SDK2/compare/f5d9375f84efe2b15bc0a052d3e18482ed13adf4...68ae1e1dc77f61f03c95d7c2809831e198d0aedd)はahead=1/behind=0。commitメッセージにUbuntu 24.04ビルド修正、`sdk_core/comm/define.h`と`logger_handler/file_manager.h`に`<cstdint>`追加を確認。SDKのversion macroとCHANGELOGは1.3.3を示すが、v1.3.3タグを選定したという意味ではない。
+- SDKの[CMake](https://github.com/Livox-SDK/Livox-SDK2/blob/68ae1e1dc77f61f03c95d7c2809831e198d0aedd/CMakeLists.txt)はC++11/pthreadベース。[sdk_core](https://github.com/Livox-SDK/Livox-SDK2/blob/68ae1e1dc77f61f03c95d7c2809831e198d0aedd/sdk_core/CMakeLists.txt)は従来どおりliblivox_lidar_sdk_shared.so/static.aと公開headerをlib/includeへinstallする。Driver ROS2 CMakeが要求する`/usr/local/lib/liblivox_lidar_sdk_shared.so`、livox_lidar_api.h/def.hと対応し、両DockerfileのSDK先行install・driver再ビルド方式を維持できる。
+- 公開API差分はSetLivoxLidarImuRange等の追加。Driverの[初期化](https://github.com/Livox-SDK/livox_ros_driver2/blob/13eb05e4e6dd7a765b934d0c5fd6236676a57b49/src/lds_lidar.cpp)が使うLivoxLidarSdkInit/Uninit、InfoChange callback、[設定callback](https://github.com/Livox-SDK/livox_ros_driver2/blob/13eb05e4e6dd7a765b934d0c5fd6236676a57b49/src/call_back/livox_lidar_callback.cpp)が使うPclDataType/WorkMode/ImuData等の既存APIとコールバック・点群構造体は変更されていない。DirectLidarStateInfoには末尾imu_rangeが追加されるため、一般的な既存バイナリABI互換を保証しない。今回のDriverはSDK header/libraryとともにソース再ビルドする構成。
+- 差分にはMID-360S向けIMU range、ログ/debug点群記録処理の変更も含む。MID-360用の既存API・設定パーサに静的な非互換は見つからず採用するが、Piでのビルド・実機通信・停止/ログ挙動は未検証。SDKソースパッチや`-include cstdint`による回避は追加しない。
 - [Driver ROS2 manifest](https://github.com/Livox-SDK/livox_ros_driver2/blob/13eb05e4e6dd7a765b934d0c5fd6236676a57b49/package_ROS2.xml)の主依存はament_cmake_auto、rosidl生成/runtime、rclcpp/components、std/sensor/rcl/rcutils系、pcl_conversions、PCL、APR、git。[CMake](https://github.com/Livox-SDK/livox_ros_driver2/blob/13eb05e4e6dd7a765b934d0c5fd6236676a57b49/CMakeLists.txt)がPCL/APRとSDK共有ライブラリを参照する。現行Dockerのlibpcl-dev/libapr1-dev/rapidjson-devはこれらの準備に対応する。
 - [build.sh](https://github.com/Livox-SDK/livox_ros_driver2/blob/13eb05e4e6dd7a765b934d0c5fd6236676a57b49/build.sh)のJazzy指定は`ROS_EDITION=ROS2` / `DISTRO_ROS=jazzy`。DockerがmanifestをROS2版へ置換して同じCMake値を指定することを確認した。
 - [Driver README](https://github.com/Livox-SDK/livox_ros_driver2/blob/13eb05e4e6dd7a765b934d0c5fd6236676a57b49/README.md)上は`xfer_format=0`のXYZ float32 / tag uint8を含む形式が記載されている。これは実Publisherフィールドを確認した証拠ではない。
-- SDKの[config parser](https://github.com/Livox-SDK/Livox-SDK2/blob/f5d9375f84efe2b15bc0a052d3e18482ed13adf4/sdk_core/parse_cfg_file.cpp)は`host_net_info`のobject旧形式とarray新形式を分岐する。保持中のJSONを新形式へ機械的に書き換える必要はソース上確認されなかった。実IP/ポートと通信・時刻同期は未確認。
+- SDKの[config parser](https://github.com/Livox-SDK/Livox-SDK2/blob/68ae1e1dc77f61f03c95d7c2809831e198d0aedd/sdk_core/parse_cfg_file.cpp)は`host_net_info`のobject旧形式とarray新形式を分岐する。今回のcommitでも同ファイルは変更されていない。保持中のJSONを新形式へ機械的に書き換える必要はソース上確認されなかった。実IP/ポートと通信・時刻同期は未確認。
 
 ## 3. 通常ROS版のビルド前提とDockerfile照合
 

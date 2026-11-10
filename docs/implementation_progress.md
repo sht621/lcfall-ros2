@@ -101,3 +101,11 @@
 - manifestはHEFメタデータ・公式前後処理・実装を静的照合した根拠でverified_for_hef=true。verification.inference_validated/performance_validated=falseを別記。実推論成功・精度・性能の検証結果ではない。README/モデルREADME/環境準備文書と旧案内を更新。raw設定例に必須max_detections項目を追加。
 - requires Pi verification: ビルドとSHA256照合、実推論・数値比較・元画素座標復元、正常0人/複数人・境界・同score時のNMS、NumPy/OpenCV/HailoRT ABI、Python NMS最大8400候補の最悪O(K²)時間・メモリ、Pose/全系p95/p99遅延と持続10Hz。
 - ソース・設定編集と静的差分確認のみ。ビルド・テスト・lint・構文チェック・ROS実行・Pi操作・コミット・Pushは未実施。検証は自動開始せず、次の指示まで停止する。
+
+## Livox SDK2の上流ビルド修正commit採用（2026-11-10）
+
+- feature/edge-pipeline、開始時クリーンを確認。公式compareで旧固定f5d9375f84efe2b15bc0a052d3e18482ed13adf4から68ae1e1dc77f61f03c95d7c2809831e198d0aeddが直後の1 commitであること、Ubuntu 24.04修正とcomm/define.h・logger_handler/file_manager.hへのcstdint追加を確認。
+- Driver 1.2.6固定13eb05e4e6dd7a765b934d0c5fd6236676a57b49のROS2 CMake、初期化/設定callbackとSDK公開API差分を静的照合。使用中のAPI・callback・点群構造体、共有ライブラリ名・header install先、C++11/pthreadの構築条件に非互換は見つからず採用。
+- .env.exampleのLIVOX_SDK2_COMMITを更新。SDK内version macroは1.3.3のため、環境準備文書・READMEもv1.3.1後の修正commitとして更新。Driver SHAは維持。SDKソースへのパッチ・強制include・Dockerfile変更は行っていない。
+- 上流差分にはMID-360S API追加、DirectLidarStateInfo末尾拡張、ログ/debug記録変更も含む。既存バイナリのABI互換を保証するものではなく、SDKとDriverを共にソース再ビルドする構成。Piでのビルド・実通信・ログ/停止挙動はrequires Pi verification。
+- 無関係な処理・設計v2.6は未変更。公式ソース閲覧・設定編集・静的差分確認のみ。ビルド・テスト・lint・構文チェック・ROS実行・Pi操作・コミット・Pushは行わず停止する。

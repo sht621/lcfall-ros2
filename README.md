@@ -49,7 +49,7 @@ MID-360 ──┘   ATS      └─ /sync/points ─ lidar_preprocess_node ─ /
 
 | 設定 | 内容 |
 |---|---|
-| `LIBREALSENSE_COMMIT`, `REALSENSE_ROS_COMMIT`, `LIVOX_SDK2_COMMIT`, `LIVOX_DRIVER_COMMIT` | 完全な小文字40桁コミットSHA。[環境準備文書](docs/pi_environment_preparation.md)に根拠を記録したリリース候補を設定済み。Piでのビルド・実機互換は未確認 |
+| `LIBREALSENSE_COMMIT`, `REALSENSE_ROS_COMMIT`, `LIVOX_SDK2_COMMIT`, `LIVOX_DRIVER_COMMIT` | 完全な小文字40桁コミットSHA。[環境準備文書](docs/pi_environment_preparation.md)に根拠を記録した固定候補を設定済み。Livox SDK2はUbuntu 24.04修正commit、他3件はリリースcommit。Piでのビルド・実機互換は未確認 |
 | `BUILD_JOBS` | 初期1。CMake/Makeの並列数。colconはパッケージを逐次ビルドし、Piのメモリ使用を抑える |
 | `HAILO_DEVICE`, `REALSENSE_USB_DEVICE`, `HAILO_GID`, `USB_GID` | 実Hailoデバイス、D455のUSBパス、アクセスを許可する数値GID |
 | `ROS_DOMAIN_ID` | PiとGPUサーバで合わせるDomain |
@@ -70,6 +70,8 @@ manifestはユーザー提供のPi実HEF解析結果（UINT8 NHWC入力、9 raw�
 標準Composeから`./models:/models:ro`を撤去し、イメージ内ファイルを使用します。`hef_path=/models/yolov8m_pose.hef`、`model_manifest=/models/pose_model.yaml`、`PYTHONPATH=/models`は維持します。将来の差替えは明示的なCompose overrideまたはイメージ変更で行えます。
 
 両DockerfileのRealSense取得先は正式な`realsenseai/librealsense` / `realsenseai/realsense-ros`です。選定済みの固定SHAは維持しています。RealSenseのCMake必須依存`rclcpp_action`とLivoxの宣言済み実行時依存`rosbag2`は、通常版では公式ROS deb、EdgeRM版では選択した改変ROSのソースから準備する構成です。録画処理を起動する変更ではありません。
+
+Livox SDK2は上流のUbuntu 24.04ビルド修正済みcommit `68ae1e1dc77f61f03c95d7c2809831e198d0aedd`（SDK内表記1.3.3）へ固定し、Driver 1.2.6は維持します。既存`.env`を使う場合も`LIVOX_SDK2_COMMIT`を更新してください。SDKへのローカルパッチや強制includeオプションは追加していません。DriverのAPI・ライブラリ配置と静的に整合しますが、ビルド・実通信は未検証です。
 
 D455はRGBのみ1280×720×30の初期設定です。RSUSB版librealsenseとrealsense-rosをソースから構築します。USB再接続でデバイス番号が変わった場合は`.env`を更新してください。LivoxはPointCloud2 / 10Hz / `livox_frame`を初期値とし、[Livox JSON](config/livox/MID360_config.json)の旧IP（ホスト192.168.1.50 / LiDAR .198）を実環境へ合わせます。JSON内の外部変換はidentityを維持し、TFとの二重変換を避けます。
 
