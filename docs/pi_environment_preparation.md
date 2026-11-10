@@ -2,7 +2,7 @@
 
 調査日: 2026-11-10（JST）。対象: `feature/edge-pipeline`。
 
-**調査と、その結果に基づくDockerfile・設定・共通補助スクリプトの静的修正のみ。Docker/colconビルド、テスト、lint、構文チェック、ROS実行、ハードウェア照会、インストールは行っていない。** 今回の自動取得対応はユーザーの指示によりコミット・Pushする。設計v2.6、処理アルゴリズム、Composeの2サービス構成は変更していない。
+**調査と、その結果に基づくDockerfile・設定・共通補助スクリプトの静的修正のみ。Docker/colconビルド、テスト、lint、構文チェック、ROS実行、ハードウェア照会、インストールは行っていない。** 前回のHailoRT自動取得はコミット・Push済み。今回のHEF/manifest対応ではコミット・Pushしない。設計v2.6、処理アルゴリズム、Composeの2サービス構成は変更していない。
 
 「確認済み」は公開ソースやメタデータで確認できた内容。「候補」は次のPi段階で評価する入力。「未確認」は配布物・非公開ソース・実機が必要な事項である。SHAが確定していることは、その組合せのビルド成功やハードウェア互換を意味しない。
 
@@ -151,39 +151,43 @@ GitHub APIで観測した各default branchの最新commitは以下。これは�
 
 ### 入手・配置するファイル
 
-HailoRTのdeb/wheelは事前配置不要。**YOLOv8m-PoseのHEFと対応manifestは引き続き別途準備する**。現在、実モデルとmanifestは未提供。
+HailoRTのdeb/wheelとYOLOv8m-Pose HEFはビルド時に自動取得し、manifestはリポジトリから同梱する。標準起動にホストのモデルディレクトリは不要。ただしmanifestは未承認で、推論開始は拒否される。
 
 | 用途 | 入手先・必要形式 | 配置・未確認事項 |
 |---|---|---|
 | ユーザー空間runtime deb | 上記4.23.0 ARM64 HTTPS URLからビルド中に取得 | 手動配置不要。実Package/Version/Architecture/Dependsはビルド時の確認対象 |
 | Python wheel | 上記4.23.0 cp312 ARM64 HTTPS URLからビルド中に取得 | 手動配置不要。実metadata/ELFとlibhailort/NumPy ABIは未検証 |
 | ホストPCIe driver/FW | ユーザー確認済み4.23.0を維持 | ホスト変更・コンテナへのkernel driver導入は行わない |
-| YOLOv8m-Pose HEF | 次項の公式Hailo-8モデル配布表、または提供済みモデルの正しい出所 | `models/yolov8m_pose.hef`。実バイナリ/hash/target/FW互換は未確認 |
-| manifest | このリポジトリの`pose_model.example.yaml`と実HEF/元モデルの照合から作成 | `models/pose_model.yaml`。単なる例のコピーやverified_for_hefだけの変更は不可 |
+| YOLOv8m-Pose HEF | 次項の公式v2.18.0 Hailo-8モデルURLから自動取得 | `/models/yolov8m_pose.hef`。実I/O・量子化・後処理・hashは未確認 |
+| manifest | リポジトリ管理の`models/pose_model.yaml`をCOPY | `/models/pose_model.yaml`。公開ソースの事実と未確定値を記録。verified_for_hef=falseで起動拒否 |
 
 GStreamer/TAPPASのPython `hailo`モジュールと、今回の`hailo_platform`を混同しない。TAPPAS導入はこの直接HailoRT経路の必須条件として追加しない。
 
 ### HEFとmanifestの照合
 
-[Model Zoo Hailo-8 pose表](https://github.com/hailo-ai/hailo_model_zoo/blob/3f19ede8673c0d050bca24ea02dd6606d52f816c/docs/public_models/HAILO8/HAILO8_pose_estimation.rst)には次のHEFリンクがある（**リンクをソースで確認しただけで、ダウンロード・読出しはしていない**）。
+[Model Zooの公式対応表](https://github.com/hailo-ai/hailo-apps/blob/main/hailo_apps/config/config.yaml)はHailoRT 4.23.xとv2.18.0を対応付ける。[Hailo-8 pose表](https://github.com/hailo-ai/hailo_model_zoo/blob/dc402c7ae70149c516324ef9ddff32d27609ae06/docs/public_models/HAILO8/HAILO8_pose_estimation.rst)に次の配布リンクがある。
 
-[YOLOv8m-Pose / Hailo-8 / v2.19.0 HEF候補](https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v2.19.0/hailo8/yolov8m_pose.hef)
+[YOLOv8m-Pose / Hailo-8 / v2.18.0 固定HEF](https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v2.18.0/hailo8/yolov8m_pose.hef)
 
-このリンクは前回調査の候補であり、今回固定するHailoRT 4.23.0への互換は未確認。compiler/runtime対応を確認した実HEFとmanifestを別途選定する。自動取得・自動採用はしない。
+2026-11-10 07:52:00 UTCにHTTPS HEAD 200とContent-Length=31,609,032を確認。本体取得・解析・実行はしていない。配布元SHA256は未確認なので固定値を設定せず、multipart ETagで代用しない。v2.19.0への切替は行わない。GitHubのtag名はv2.18、commitは`dc402c7ae70149c516324ef9ddff32d27609ae06`。配布ディレクトリ名はv2.18.0。
 
-同版の[network設定](https://github.com/hailo-ai/hailo_model_zoo/blob/3f19ede8673c0d050bca24ea02dd6606d52f816c/hailo_model_zoo/cfg/networks/yolov8m_pose.yaml)は640×640×3入力、20/40/80の3スケールごとに64/1/51 channelの出力情報を持つ。既存raw decoderの想定形状に対応する候補だが、**HEFの実VStream名、最終出力形式、値の意味は確定していない**。[alls script](https://github.com/hailo-ai/hailo_model_zoo/blob/3f19ede8673c0d050bca24ea02dd6606d52f816c/hailo_model_zoo/cfg/alls/generic/yolov8m_pose.alls)には入力正規化と一部出力のsigmoid指定がある。二重正規化や二重sigmoidを避ける。
+同版のnetwork設定は640×640×3 RGB入力、20/40/80の3スケールごとに64/1/51 channelの9出力。ALLSはネット内255除算、一部convのsigmoid、keypoint側a16_w16を指定する。公式CPU後処理のDFL/XY式は既存rawと対応するが、strict score>0.001とmax=300は既存rawの>=/件数制限なしとは異なる。**HEFの実VStream名、量子化、NMS有無は未確定**。詳細と固定ソースへのリンクは[モデル調査記録](../models/README.md)にまとめた。
 
-| 現在の例の項目 | 実HEF・元モデルで照合する内容 |
+両DockerfileはmanifestをCOPY後、共通prepare-pose-modelでHEFを取得する。ダウンロード失敗・空ファイルで停止し、一時ファイルは同じRUN内で削除。Composeの`./models:/models:ro`を撤去し、既存hef_path/model_manifest/PYTHONPATHの/models参照は維持。`.gitignore`/`.dockerignore`はモデルバイナリを除外しつつ、管理するmanifestだけを許可する。
+
+manifestのdecoder.typeとhost量子化関連は未確定値にし、verified_for_hef=falseを維持する。既存HailoBackendはデバイス設定前に拒否する。HEF内NMSや公式の選択処理との相違が確認された場合はcustom decoder APIを利用する。今回は根拠のないraw適用・custom実装・4処理ノード変更は行わない。
+
+| 確認項目 | 実HEF・元モデルで照合する内容 |
 |---|---|
 | verified_for_hef=false | 実ファイル出所・hash・対象Hailo-8・compiler/runtime適合を記録してから変更 |
 | input_shape=[640,640,3] | 実入力数（backendは1入力のみ）、HWC順序、batch=1、RGB/BGR |
 | pad_value=114 | letterbox、丸め、padding位置・色、補間、元1280×720への逆変換が元モデルと一致するか |
 | input_dtype / input_quantized / scale / offset | host UINT8/FLOAT32、HEF内正規化と量子化、二重処理の有無 |
-| decoder.type / heads | raw 9出力か組込NMS等か、出力名/形状/順序を実HEFから取得しREPLACE値を置換 |
+| decoder.type / heads | raw 9出力か組込NMS等か、出力名/形状/順序を実HEFから取得し、raw/customを選択 |
 | reg_max=16 / stride=8,16,32 | DFL bins、anchor/grid、BBox距離とkeypointの式・単位が一致するか |
 | scores / keypoint_scores | 各出力がlogitsか確率か、どの出力へsigmoidが含まれるか |
 | missing_joints=none | 0値や低scoreを勝手に欠損化しない。明示的欠損がある場合だけNaN三値へ変換し、必要ならHEF固有decoderを用意 |
-| person_score_threshold / nms_iou_threshold=null | 元モデルの選択/NMS条件を照合する。未確認の数値を埋めない |
+| reference_postprocess | 公開ソースのscore>0.001/IoU=0.7/max=300は参考情報として記録。実decoderへの接続は未完了 |
 | decoderの最終契約 | 全人物、入力画素座標のxyxy＋det_score＋COCO17の(N,56)、正常0人は(0,56)、不整合は例外 |
 
 元RGBサイズはメッセージへ追加せず、カメラ・Pose設定・GPUサーバの事前設定を一致させる。公式ベンチマークは別ホスト・PCIe条件の値であり、Pi全系10Hzの根拠には使わない。モデル/重みのライセンスも配布元の条件を確認してから利用する。
@@ -213,7 +217,7 @@ GStreamer/TAPPASのPython `hailo`モジュールと、今回の`hailo_platform`�
 
 1. PiのOS/arch/kernel/headers/RAM/電源/冷却を記録。既存Hailo driver/FWとD455/USB、MID-360 NICの状態を確認する。
 2. ホストdriver/FW 4.23.0を維持し、固定runtime/wheelと実HEFの出所・ABI・互換を確認する。配布元SHA256が入手できた場合だけ照合値を追加する。ホストdriverの更新はこの手順に含めない。
-3. 通常版向け`.env`を候補4 SHAと実デバイス/GID/Domainで準備。HailoRTファイル名の設定は不要。ビルド時の固定HTTPS配布先への接続条件を準備し、実HEF/manifestを別途配置する。
+3. 通常版向け`.env`を候補4 SHAと実デバイス/GID/Domainで準備。HailoRT/HEFの手動配置は不要。ビルド時の固定HTTPS配布先への接続条件を準備する。manifest/decoderを実HEFと照合して確定するまで推論へ進まない。
 4. まず通常ROS版だけをビルドする。依存解決、msg/srv生成、driver/自作ノードのビルド結果を記録し、失敗時はここで止める。
 5. D455 RGBのみ、Livox PointCloud2の実topic/QoS/frame_id/tag型、元stampの時計基準を確認。TF/ROIと正常空点群、人物0人/推論エラーの区別、manifest復元を確認する。
 6. `ENABLE_BRIDGE=false`で全処理経路と元stampの厳密集約を確認。到着順・欠落・期限・重複・再起動/空結果について、別途許可された検証を行う。

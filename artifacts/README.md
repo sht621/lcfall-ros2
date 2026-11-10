@@ -6,4 +6,5 @@ ARM64 runtime debとCPython 3.12 ARM64 wheelをHTTPSで自動取得します。
 取得先・確認状況は[環境準備文書](../docs/pi_environment_preparation.md)を参照してください。
 
 ホストのPCIeドライバ・FWは4.23.0を維持します。ビルド・ABI・実機通信は未検証です。
-YOLOv8m-PoseのHEFと対応manifestは引き続き`models/`へ別途準備してください。
+YOLOv8m-Pose HEFもビルド時に自動取得し、manifestを同梱します。
+ただしmanifestは未承認で推論開始を拒否します。[モデルの確認状況](../models/README.md)を参照してください。

@@ -175,5 +175,22 @@ PYTHON
     apt-get clean
 )
 
+prepare-pose-model() (
+    # Image build only. Official Hailo-8 RGB HEF, Model Zoo 2.18.0 for RT 4.23.x.
+    # The manifest remains unverified until the actual HEF contract is matched.
+    set -euo pipefail
+    local -r url=https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v2.18.0/hailo8/yolov8m_pose.hef
+    local download_directory
+    test -f /models/pose_model.yaml
+    download_directory="$(mktemp -d /tmp/edge-pose-model.XXXXXXXX)"
+    trap 'rm -rf -- "$download_directory"' EXIT
+    curl -q --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+        --connect-timeout 30 --max-time 600 --output "$download_directory/model.hef" "$url"
+    test -s "$download_directory/model.hef"
+    # No publisher SHA256 found; an S3 multipart ETag is not a SHA256 lock.
+    # Do not run HEF inspection/inference or silently mark the manifest verified.
+    install -m 644 "$download_directory/model.hef" /models/yolov8m_pose.hef
+)
+
 # Callers may append driver-specific CMake definitions before colcon-build.
 EDGE_CMAKE_ARGS=()

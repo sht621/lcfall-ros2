@@ -186,6 +186,8 @@ colcon-build src /opt/edge_ws/install realsense2_camera livox_ros_driver2
 BUILD
 
 RUN source /usr/local/lib/edge-build-tools.sh && install-hailort
+COPY models/pose_model.yaml /models/pose_model.yaml
+RUN source /usr/local/lib/edge-build-tools.sh && prepare-pose-model
 COPY src/fall_detection_msgs/ src/fall_detection_msgs/
 COPY src/fall_detection_edge/ src/fall_detection_edge/
 RUN <<'BUILD'

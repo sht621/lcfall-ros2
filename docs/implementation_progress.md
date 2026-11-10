@@ -81,3 +81,13 @@
 - 両DockerfileからartifactsのCOPYとHAILORT_DEB/HAILORT_WHEELのARGを削除。通常版にcurlを明示追加。Composeと.env.exampleから旧2変数を撤去。README・環境準備文書・artifactsの説明を更新し、HEF/manifestは引き続き別途準備と明記。
 - 4処理ノード、EdgeRM API、ブリッジ送信制御、msg/srv、設計v2.6、2サービス構成は未変更。native ABI、実HEF互換、実通信・Future管理・全系10Hzはrequires Pi verification。
 - 今回は公開配布先の調査・ソース編集・静的差分確認のみ。ビルド・テスト・lint・構文チェック・ROS実行・Pi操作は未実施。コミット・Pushは今回のユーザー指示に従って行い、その後停止する。
+
+## YOLOv8m-Pose HEFの自動配置とmanifest調査（2026-11-10）
+
+- feature/edge-pipeline、開始時クリーンを確認。HailoRT 4.23.0とDebian 13 ARM64ホストのdriver/FW 4.23.0は維持。
+- 公式Hailo Apps対応表でRT 4.23.x→Model Zoo v2.18.0を確認。公式ZooのGit tagはv2.18、commit dc402c7ae70149c516324ef9ddff32d27609ae06。Hailo-8 pose表のv2.18.0配布リンクとHTTPS HEAD 200（31,609,032 bytes）を確認。HEF本体の取得・解析・実行、SHA256確認は未実施。
+- prepare-pose-modelを両Dockerfileから呼び、固定HTTPSのHEFを/models/yolov8m_pose.hefへ取得する記述を追加。失敗・空ファイルで停止し、別版fallbackなし、一時ファイルは削除。models/pose_model.yamlをイメージへCOPY。Git/Dockerの除外設定はmanifestだけ許可し、Composeのmodels bind mountは撤去。既存hef_path/model_manifest/PYTHONPATHは維持。
+- 公開ネットワーク/base/ALLS/CPU後処理を静的照合。640×640 RGB、9 raw heads、ネット内正規化、DFL 16 bins、COCO17の復元式を確認。既存rawは公式のstrict score>0.001/max=300を再現しておらず、実HEFのVStream/量子化/NMS有無も未確認。互換とは判定しない。
+- manifestはテンプレートを検証済みとしてコピーせず、公開ソースの事実と未確定値を記録した未承認設定として管理。verified_for_hef=falseを維持し、デバイス設定前に起動拒否。自動配置は実装したが、手動配置不要での推論開始はmanifest/decoder未確定のため未完了。必要なら既存custom decoder APIで対応する。
+- README、models/README、環境準備文書、artifactsの旧案内、.env.exampleを更新。設計v2.6、4処理ノード、msg/srv、通信・同期・点群処理は未変更。
+- requires Pi verification: 実HEF I/O/量子化/NMS、前後処理・欠損意味、HailoRT ABI、推論と全系10Hz。今回は静的差分確認のみで、ビルド・テスト・lint・構文チェック・ROS実行・Pi操作・コミット・Pushは行わず停止する。

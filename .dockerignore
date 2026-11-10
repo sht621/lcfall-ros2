@@ -12,5 +12,6 @@ data
 build
 install
 log
-models
+models/*
+!models/pose_model.yaml
 docs

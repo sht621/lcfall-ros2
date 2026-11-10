@@ -1,0 +1,48 @@
+# Model-specific preparation record, NOT an approved inference configuration.
+# HailoBackend intentionally rejects this file before configuring the device.
+# requires Pi verification: actual downloaded HEF I/O, quantization and postprocess.
+verified_for_hef: false
+model:
+  name: yolov8m_pose
+  hardware: hailo8
+  hailort_version: 4.23.0
+  model_zoo_version: v2.18.0
+  source_commit: dc402c7ae70149c516324ef9ddff32d27609ae06
+  hef_url: https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v2.18.0/hailo8/yolov8m_pose.hef
+  # No publisher SHA256 verified. Do not replace with a guessed value.
+  sha256: null
+# Confirmed by the pinned public model configuration; actual HEF not inspected.
+input_shape: [640, 640, 3]
+preprocess:
+  channel_order: rgb
+  pad_value: 114
+  # The ALLS script normalizes by 255 in-network. Actual host input format and
+  # quantization must be checked before choosing uint8/float32/scaling here.
+  input_dtype: null
+  input_quantized: null
+  input_scale: null
+  input_offset: null
+decoder:
+  # Do not select raw-head decoding until the actual HEF output contract is known.
+  # Use the existing custom decoder API if NMS/postprocess or selection differs.
+  type: null
+reference_postprocess:
+  # Public Model Zoo source facts, not active decoder parameters.
+  raw_output_shapes: [[20, 20, 64], [20, 20, 1], [20, 20, 51],
+                      [40, 40, 64], [40, 40, 1], [40, 40, 51],
+                      [80, 80, 64], [80, 80, 1], [80, 80, 51]]
+  dfl_bins: 16
+  strides: [32, 16, 8]
+  keypoint_count: 17
+  keypoint_components: [x, y, score]
+  keypoint_score_activation: sigmoid
+  score_threshold: 0.001
+  score_comparison: greater_than
+  nms_iou_threshold: 0.7
+  max_detections: 300
+unresolved:
+  - Actual HEF input/output VStream names, shapes, formats and quantization
+  - Whether the distributed HEF embeds NMS or other postprocessing
+  - Exact preprocessing and coordinate restoration against the compiled model
+  - Decoder selection, official candidate selection/NMS and missing-joint semantics
+  - HailoRT 4.23.0 inference and contract/ABI verification on the Pi
