@@ -1,7 +1,10 @@
-# Model-specific preparation record, NOT an approved inference configuration.
-# HailoBackend intentionally rejects this file before configuring the device.
-# requires Pi verification: actual downloaded HEF I/O, quantization and postprocess.
-verified_for_hef: false
+# Static contract matched to the user's Pi HEF inspection and the pinned
+# Model Zoo preprocessing/postprocessing sources. NOT inference/accuracy tested.
+verified_for_hef: true
+verification:
+  basis: user_supplied_pi_hef_metadata_and_source_review
+  inference_validated: false
+  performance_validated: false
 model:
   name: yolov8m_pose
   hardware: hailo8
@@ -9,40 +12,40 @@ model:
   model_zoo_version: v2.18.0
   source_commit: dc402c7ae70149c516324ef9ddff32d27609ae06
   hef_url: https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v2.18.0/hailo8/yolov8m_pose.hef
-  # No publisher SHA256 verified. Do not replace with a guessed value.
-  sha256: null
-# Confirmed by the pinned public model configuration; actual HEF not inspected.
+  # User-supplied measured SHA256, not a publisher-provided checksum.
+  sha256: 54f22e23ee5e161e3b5d8507add82035122f72fa6357b453eb8773c63c0eb4b7
+  input_name: yolov8m_pose/input_layer1
+  input_format: NHWC
+  input_zero_point: 0.0
+  embedded_nms: false
 input_shape: [640, 640, 3]
 preprocess:
   channel_order: rgb
   pad_value: 114
-  # The ALLS script normalizes by 255 in-network. Actual host input format and
-  # quantization must be checked before choosing uint8/float32/scaling here.
-  input_dtype: null
-  input_quantized: null
-  input_scale: null
-  input_offset: null
+  # Network already divides by 255; feed unscaled quantized UINT8 pixels.
+  input_dtype: uint8
+  input_quantized: true
+  input_scale: 1.0
+  input_offset: 0.0
 decoder:
-  # Do not select raw-head decoding until the actual HEF output contract is known.
-  # Use the existing custom decoder API if NMS/postprocess or selection differs.
-  type: null
-reference_postprocess:
-  # Public Model Zoo source facts, not active decoder parameters.
-  raw_output_shapes: [[20, 20, 64], [20, 20, 1], [20, 20, 51],
-                      [40, 40, 64], [40, 40, 1], [40, 40, 51],
-                      [80, 80, 64], [80, 80, 1], [80, 80, 51]]
-  dfl_bins: 16
-  strides: [32, 16, 8]
-  keypoint_count: 17
-  keypoint_components: [x, y, score]
-  keypoint_score_activation: sigmoid
-  score_threshold: 0.001
-  score_comparison: greater_than
+  type: yolov8_pose_raw
+  reg_max: 16
+  scores: probabilities
+  keypoint_scores: logits
+  person_score_threshold: 0.001
   nms_iou_threshold: 0.7
   max_detections: 300
-unresolved:
-  - Actual HEF input/output VStream names, shapes, formats and quantization
-  - Whether the distributed HEF embeds NMS or other postprocessing
-  - Exact preprocessing and coordinate restoration against the compiled model
-  - Decoder selection, official candidate selection/NMS and missing-joint semantics
-  - HailoRT 4.23.0 inference and contract/ABI verification on the Pi
+  missing_joints: none
+  heads:
+    - stride: 32
+      boxes: yolov8m_pose/conv90
+      scores: yolov8m_pose/conv91
+      keypoints: yolov8m_pose/conv92
+    - stride: 16
+      boxes: yolov8m_pose/conv75
+      scores: yolov8m_pose/conv76
+      keypoints: yolov8m_pose/conv77
+    - stride: 8
+      boxes: yolov8m_pose/conv59
+      scores: yolov8m_pose/conv60
+      keypoints: yolov8m_pose/conv61

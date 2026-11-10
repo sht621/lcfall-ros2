@@ -7,4 +7,5 @@ ARM64 runtime debとCPython 3.12 ARM64 wheelをHTTPSで自動取得します。
 
 ホストのPCIeドライバ・FWは4.23.0を維持します。ビルド・ABI・実機通信は未検証です。
 YOLOv8m-Pose HEFもビルド時に自動取得し、manifestを同梱します。
-ただしmanifestは未承認で推論開始を拒否します。[モデルの確認状況](../models/README.md)を参照してください。
+manifestはユーザー提供の実HEF解析結果と公式ソースに静的照合済みです。
+実推論・精度・10Hz性能は未検証です。[モデルの確認状況](../models/README.md)を参照してください。

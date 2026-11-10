@@ -91,3 +91,13 @@
 - manifestはテンプレートを検証済みとしてコピーせず、公開ソースの事実と未確定値を記録した未承認設定として管理。verified_for_hef=falseを維持し、デバイス設定前に起動拒否。自動配置は実装したが、手動配置不要での推論開始はmanifest/decoder未確定のため未完了。必要なら既存custom decoder APIで対応する。
 - README、models/README、環境準備文書、artifactsの旧案内、.env.exampleを更新。設計v2.6、4処理ノード、msg/srv、通信・同期・点群処理は未変更。
 - requires Pi verification: 実HEF I/O/量子化/NMS、前後処理・欠損意味、HailoRT ABI、推論と全系10Hz。今回は静的差分確認のみで、ビルド・テスト・lint・構文チェック・ROS実行・Pi操作・コミット・Pushは行わず停止する。
+
+## 実HEF解析結果に基づくmanifest・rawデコーダ修正（2026-11-10）
+
+- feature/edge-pipeline、開始時クリーンを確認。ユーザー提供のPi/HailoRT 4.23.0解析結果を根拠に、HAILO8、UINT8 NHWC入力/scale=1/zero point=0、9 raw VStreamの名前・形状、NMS出力なしをmanifestへ反映。MacでHEF解析を再実行していない。
+- 指定SHA256 54f22e23ee5e161e3b5d8507add82035122f72fa6357b453eb8773c63c0eb4b7をmanifestとprepare-pose-modelへ固定。公式公開checksumではなくPi実測の提供値。将来のDockerビルド時に一致しなければ停止。URL・Model Zoo版・HailoRT版は変更していない。
+- 固定commit dc402c7ae70149c516324ef9ddff32d27609ae06のpose前処理、Python後処理、Cython NMSを閲覧。DFL 16 bins/XY復元を維持し、strict score>0.001、NMSの+1面積・IoU>=0.7抑制・二段argsort/返却順、NMS後最大300件を実装。sigmoidはlogitをclipしない安定形へ。正常0人はfloat32 (0,56)。関節閾値や人物の事前top-kは追加しない。
+- 前処理の静的照合でINTER_LINEAR縮小/寸法roundとの差が判明したため、pose_processing.prepareのみ公式の寸法切捨て・縮小INTER_AREA・中央paddingへ修正。元座標復元と出力契約は維持。同期・点群・通信・msg/srv・設計v2.6は未変更。HailoBackendのquantized=false/FLOAT32逆量子化も未変更。
+- manifestはHEFメタデータ・公式前後処理・実装を静的照合した根拠でverified_for_hef=true。verification.inference_validated/performance_validated=falseを別記。実推論成功・精度・性能の検証結果ではない。README/モデルREADME/環境準備文書と旧案内を更新。raw設定例に必須max_detections項目を追加。
+- requires Pi verification: ビルドとSHA256照合、実推論・数値比較・元画素座標復元、正常0人/複数人・境界・同score時のNMS、NumPy/OpenCV/HailoRT ABI、Python NMS最大8400候補の最悪O(K²)時間・メモリ、Pose/全系p95/p99遅延と持続10Hz。
+- ソース・設定編集と静的差分確認のみ。ビルド・テスト・lint・構文チェック・ROS実行・Pi操作・コミット・Pushは未実施。検証は自動開始せず、次の指示まで停止する。

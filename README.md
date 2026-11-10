@@ -63,9 +63,9 @@ HailoRTは両Dockerfileから共通処理で**4.23.0固定**のruntime debとcp3
 - [HailoRT 4.23.0 ARM64 deb](https://dev-public.hailo.ai/2025_10/Hailo8/hailort_4.23.0_arm64.deb)
 - [HailoRT 4.23.0 CPython 3.12 ARM64 wheel](https://dev-public.hailo.ai/2025_10/Hailo8/hailort-4.23.0-cp312-cp312-linux_aarch64.whl)
 
-YOLOv8m-Poseは[公式Model Zoo v2.18.0 / Hailo-8 HEF](https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v2.18.0/hailo8/yolov8m_pose.hef)を両Dockerfile共通処理で自動取得し、リポジトリ管理の[manifest](models/pose_model.yaml)とともに`/models/`へ配置します。公式対応表に基づきHailoRT 4.23.0とv2.18.0を選び、v2.19.0へ自動変更しません。HEFのHTTPS HEAD 200は確認済み、公開SHA256は未確認です。
+YOLOv8m-Poseは[公式Model Zoo v2.18.0 / Hailo-8 HEF](https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v2.18.0/hailo8/yolov8m_pose.hef)を両Dockerfile共通処理で自動取得し、リポジトリ管理の[manifest](models/pose_model.yaml)とともに`/models/`へ配置します。HailoRT 4.23.0とv2.18.0の固定を維持し、ユーザーがPiで取得したHEFのSHA256をビルド時に照合します。不一致はビルドを停止します。
 
-**HEF/manifestの手動配置は不要ですが、推論に使うmanifestの確定は未完了です。** `verified_for_hef: false`を維持し、HailoBackendがデバイス設定前に起動を拒否します。公開設定は9出力のraw headsを示す一方、実HEFのVStream名・量子化・NMS有無は未照合です。既存rawデコーダには公式のscore比較・最大300件との違いもあり、そのまま適用しません。[調査結果と残る照合項目](models/README.md)を参照してください。
+manifestはユーザー提供のPi実HEF解析結果（UINT8 NHWC入力、9 raw出力、NMS出力なし）と固定公式ソースへ静的照合し、`verified_for_hef: true`を設定しました。rawデコーダをstrict score比較、公式IoU計算・抑制条件、NMS後最大300件へ合わせ、letterboxも公式の縮小補間・寸法計算へ修正しています。**これは実推論の成功・精度・10Hz性能の確認を意味しません。** [照合根拠と残る実機項目](models/README.md)を参照してください。
 
 標準Composeから`./models:/models:ro`を撤去し、イメージ内ファイルを使用します。`hef_path=/models/yolov8m_pose.hef`、`model_manifest=/models/pose_model.yaml`、`PYTHONPATH=/models`は維持します。将来の差替えは明示的なCompose overrideまたはイメージ変更で行えます。
 
@@ -157,7 +157,7 @@ EdgeRM版では`.env`の`EDGERM_URL`、`EDGERM_RUNTIME_NAME`、`EDGERM_VERBOSE`�
 - `git-clone(repository, ref, commit)`は専用BuildKitソースキャッシュ内でだけ動作し、既存checkoutの更新、固定commitへの切替、submodule同期・取得を行います。reset/cleanは実パスが`/var/cache/edge-build/`配下の場合だけ許可します。通常ROS版ではSDK/ドライバ取得、EdgeRM版ではそれに加えて改変ROSと不足依存の取得に使用します。取得結果はイメージ内`/opt/edge-source-locks/`へ記録します。
 - `colcon-build(base_path, install_base, targets...)`はテスト無効化、共通CMake設定、逐次パッケージビルドと`BUILD_JOBS`管理をまとめます。`--packages-up-to`でソース依存も対象にし、通常ROS版のドライバ/アプリ、EdgeRM版のROS underlay・ドライバ・アプリで使用します。
 - `install-hailort()`は4.23.0のdeb/wheelをHTTPSで一時ディレクトリへ取得し、実debのARM64/版、wheelのCPython 3.12対応タグ・版・依存metadataを照合します。取得失敗・版違い・要件不整合でビルドを停止し、別版やミラーへ切り替えません。既知のPython依存はaptで用意し、pipは`--no-deps --no-index`で指定wheelだけを導入するため、依存解決でaptのNumPyを置換しません。終了時にダウンロード一時ファイルを削除します。この処理とnative ABI適合は未検証です。
-- `prepare-pose-model()`は固定v2.18.0 Hailo-8 HEFをHTTPSで取得し、取得失敗・空ファイルで停止します。同梱manifestの検証済みフラグを変更する処理やHEFの実行は行いません。
+- `prepare-pose-model()`は固定v2.18.0 Hailo-8 HEFをHTTPSで取得し、取得失敗・空ファイル・指定SHA256不一致で停止します。同梱manifestのフラグ変更やHEFの実行は行いません。
 
 [ros_entrypoint.sh](ros_entrypoint.sh)は両イメージで共通です。必須のROS setupとworkspace setupの存在を確認し、順に読み込んで`exec "$@"`します。欠けている場合は理由を示して起動を失敗させます。旧`docker/entrypoint.sh`と二重の生成処理は残していません。
 
@@ -174,7 +174,7 @@ docker compose logs -f edge-edgerm
 
 - EdgeRM非公開ソースの実レイアウトとrosdep helper API、改変版`rclpy`/MiddlewareのARM64適合、各依存の固定SHA、ROS apt置換禁止のもとでのビルド依存充足。
 - Ubuntu 24.04 / Python 3.12 / HailoRT deb・wheel・ホストPCIeドライバの整合。aptのNumPyを保持した状態での実wheelとcv_bridge/OpenCVのnative ABI適合。metadata一致だけでは動作を保証しません。
-- HEF実I/O・量子化・後処理とmanifestの照合。raw/custom decoderの選択・公式NMS条件と欠損意味を確定するまで推論開始不可。
+- 静的照合済みmanifest/rawデコーダでの実推論・元画素座標復元・正常0人・複数人の出力比較。最大8400候補のPython NMSの時間と全系10Hz適合。
 - librealsense RSUSB/realsense-ros/Livoxの固定版、USB認識・非root権限、実topic/QoS/tag型/frame_id、元stampの時計整合。
 - TFの取付実測、床基準とROI、正常0人/空点群の伝送、起動順と全系停止処理、ブリッジ設定の実反映。
 - 通常ROSサービスとEdgeRM実通信、最大2要求・最新1待機・0.5秒期限、Future回収/解放・late response、再送なし。

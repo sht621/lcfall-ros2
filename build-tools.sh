@@ -177,9 +177,10 @@ PYTHON
 
 prepare-pose-model() (
     # Image build only. Official Hailo-8 RGB HEF, Model Zoo 2.18.0 for RT 4.23.x.
-    # The manifest remains unverified until the actual HEF contract is matched.
+    # Lock supplied by the user after HEF inspection on Pi with HailoRT 4.23.0.
     set -euo pipefail
     local -r url=https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v2.18.0/hailo8/yolov8m_pose.hef
+    local -r hef_sha256=54f22e23ee5e161e3b5d8507add82035122f72fa6357b453eb8773c63c0eb4b7
     local download_directory
     test -f /models/pose_model.yaml
     download_directory="$(mktemp -d /tmp/edge-pose-model.XXXXXXXX)"
@@ -187,8 +188,8 @@ prepare-pose-model() (
     curl -q --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
         --connect-timeout 30 --max-time 600 --output "$download_directory/model.hef" "$url"
     test -s "$download_directory/model.hef"
-    # No publisher SHA256 found; an S3 multipart ETag is not a SHA256 lock.
-    # Do not run HEF inspection/inference or silently mark the manifest verified.
+    printf '%s  %s\n' "$hef_sha256" "$download_directory/model.hef" | sha256sum --strict --check
+    # Do not run HEF inspection/inference or alter manifest verification status.
     install -m 644 "$download_directory/model.hef" /models/yolov8m_pose.hef
 )
 

@@ -20,10 +20,16 @@ def prepare(rgb, shape, config):
         raise ValueError('only HWC 3-channel model input is supported')
     source_h, source_w = rgb.shape[:2]
     scale = min(width / source_w, height / source_h)
-    resized_w, resized_h = max(1, round(source_w * scale)), max(1, round(source_h * scale))
-    left, top = (width - resized_w) // 2, (height - resized_h) // 2
+    # Match the pinned Model Zoo pose_preprocessing.letterbox: truncate resized
+    # dimensions, centred padding and area interpolation for downscaling.
+    resized_w, resized_h = int(source_w * scale), int(source_h * scale)
+    if resized_w < 1 or resized_h < 1:
+        raise ValueError('source aspect ratio produces an empty resized image')
+    left = round((width - resized_w) / 2 - 0.1)
+    top = round((height - resized_h) / 2 - 0.1)
     canvas = np.full((height, width, 3), config['pad_value'], dtype=np.uint8)
-    image = cv2.resize(rgb, (resized_w, resized_h), interpolation=cv2.INTER_LINEAR)
+    interpolation = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
+    image = cv2.resize(rgb, (resized_w, resized_h), interpolation=interpolation)
     canvas[top:top + resized_h, left:left + resized_w] = image
     order = config['channel_order']
     if order == 'bgr':

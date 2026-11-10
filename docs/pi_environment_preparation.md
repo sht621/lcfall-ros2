@@ -2,7 +2,7 @@
 
 調査日: 2026-11-10（JST）。対象: `feature/edge-pipeline`。
 
-**調査と、その結果に基づくDockerfile・設定・共通補助スクリプトの静的修正のみ。Docker/colconビルド、テスト、lint、構文チェック、ROS実行、ハードウェア照会、インストールは行っていない。** 前回のHailoRT自動取得はコミット・Push済み。今回のHEF/manifest対応ではコミット・Pushしない。設計v2.6、処理アルゴリズム、Composeの2サービス構成は変更していない。
+**今回もMacではソース・設定修正と静的確認のみ。Docker/colconビルド、テスト、lint、構文チェック、ROS実行、Pi操作、インストールは行っていない。** ユーザーが別途Piで実施したHEF解析結果を今回の照合根拠に追加した。コミット・Pushはしない。設計v2.6、msg/srv、通信・同期・点群処理、Composeの2サービス構成は変更していない。
 
 「確認済み」は公開ソースやメタデータで確認できた内容。「候補」は次のPi段階で評価する入力。「未確認」は配布物・非公開ソース・実機が必要な事項である。SHAが確定していることは、その組合せのビルド成功やハードウェア互換を意味しない。
 
@@ -151,15 +151,15 @@ GitHub APIで観測した各default branchの最新commitは以下。これは�
 
 ### 入手・配置するファイル
 
-HailoRTのdeb/wheelとYOLOv8m-Pose HEFはビルド時に自動取得し、manifestはリポジトリから同梱する。標準起動にホストのモデルディレクトリは不要。ただしmanifestは未承認で、推論開始は拒否される。
+HailoRTのdeb/wheelとYOLOv8m-Pose HEFはビルド時に自動取得し、manifestはリポジトリから同梱する。標準起動にホストのモデルディレクトリは不要。manifestはユーザー提供の実HEF解析と固定ソースへの静的照合を完了し、verified_for_hef=true。実推論と精度・性能は未検証。
 
 | 用途 | 入手先・必要形式 | 配置・未確認事項 |
 |---|---|---|
 | ユーザー空間runtime deb | 上記4.23.0 ARM64 HTTPS URLからビルド中に取得 | 手動配置不要。実Package/Version/Architecture/Dependsはビルド時の確認対象 |
 | Python wheel | 上記4.23.0 cp312 ARM64 HTTPS URLからビルド中に取得 | 手動配置不要。実metadata/ELFとlibhailort/NumPy ABIは未検証 |
 | ホストPCIe driver/FW | ユーザー確認済み4.23.0を維持 | ホスト変更・コンテナへのkernel driver導入は行わない |
-| YOLOv8m-Pose HEF | 次項の公式v2.18.0 Hailo-8モデルURLから自動取得 | `/models/yolov8m_pose.hef`。実I/O・量子化・後処理・hashは未確認 |
-| manifest | リポジトリ管理の`models/pose_model.yaml`をCOPY | `/models/pose_model.yaml`。公開ソースの事実と未確定値を記録。verified_for_hef=falseで起動拒否 |
+| YOLOv8m-Pose HEF | 次項の公式v2.18.0 Hailo-8モデルURLから自動取得 | `/models/yolov8m_pose.hef`。Pi実測のSHA256を固定し、ビルド時不一致で停止 |
+| manifest | リポジトリ管理の`models/pose_model.yaml`をCOPY | `/models/pose_model.yaml`。実HEFメタデータ・公式前後処理・実装を静的照合済み。推論成功の保証ではない |
 
 GStreamer/TAPPASのPython `hailo`モジュールと、今回の`hailo_platform`を混同しない。TAPPAS導入はこの直接HailoRT経路の必須条件として追加しない。
 
@@ -169,26 +169,24 @@ GStreamer/TAPPASのPython `hailo`モジュールと、今回の`hailo_platform`�
 
 [YOLOv8m-Pose / Hailo-8 / v2.18.0 固定HEF](https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v2.18.0/hailo8/yolov8m_pose.hef)
 
-2026-11-10 07:52:00 UTCにHTTPS HEAD 200とContent-Length=31,609,032を確認。本体取得・解析・実行はしていない。配布元SHA256は未確認なので固定値を設定せず、multipart ETagで代用しない。v2.19.0への切替は行わない。GitHubのtag名はv2.18、commitは`dc402c7ae70149c516324ef9ddff32d27609ae06`。配布ディレクトリ名はv2.18.0。
+前回調査で2026-11-10 07:52:00 UTCにHTTPS HEAD 200とContent-Length=31,609,032を確認。今回、ユーザーがPiのHailoRT 4.23.0で解析した結果と実測SHA256 `54f22e23ee5e161e3b5d8507add82035122f72fa6357b453eb8773c63c0eb4b7`を提供したため、取得処理とmanifestへ固定した。Macでは再取得・HEF解析・照合処理の実行をしていない。配布元公開checksumとは区別する。GitHubのtag名はv2.18、commitは`dc402c7ae70149c516324ef9ddff32d27609ae06`。URLと配布版v2.18.0は変更しない。
 
-同版のnetwork設定は640×640×3 RGB入力、20/40/80の3スケールごとに64/1/51 channelの9出力。ALLSはネット内255除算、一部convのsigmoid、keypoint側a16_w16を指定する。公式CPU後処理のDFL/XY式は既存rawと対応するが、strict score>0.001とmax=300は既存rawの>=/件数制限なしとは異なる。**HEFの実VStream名、量子化、NMS有無は未確定**。詳細と固定ソースへのリンクは[モデル調査記録](../models/README.md)にまとめた。
+ユーザー解析でHAILO8、入力yolov8m_pose/input_layer1、UINT8 NHWC 640×640×3、scale=1/zero point=0、9 raw出力、NMS出力なしを確認済み。stride32はconv90/91/92、16はconv75/76/77、8はconv59/60/61で、各shapeはboxes=64/scores=1/keypoints=51 channel。boxes/scores UINT8、keypoints UINT16。HailoBackendの逆量子化FLOAT32出力は維持する。
 
-両DockerfileはmanifestをCOPY後、共通prepare-pose-modelでHEFを取得する。ダウンロード失敗・空ファイルで停止し、一時ファイルは同じRUN内で削除。Composeの`./models:/models:ro`を撤去し、既存hef_path/model_manifest/PYTHONPATHの/models参照は維持。`.gitignore`/`.dockerignore`はモデルバイナリを除外しつつ、管理するmanifestだけを許可する。
+固定ソースと照合し、rawデコーダをstrict score>0.001、公式の+1面積IoU計算・IoU>=0.7で抑制・返却順、NMS後max=300へ修正。DFL 16 binsとXY復元式は維持し、人物scoreは二重sigmoidせず、joint scoreへ安定sigmoidを適用する。前処理も公式pose letterboxの寸法切捨て・縮小INTER_AREA・中央paddingへ修正した。詳細と固定ソースへのリンクは[モデル調査記録](../models/README.md)にまとめた。
 
-manifestのdecoder.typeとhost量子化関連は未確定値にし、verified_for_hef=falseを維持する。既存HailoBackendはデバイス設定前に拒否する。HEF内NMSや公式の選択処理との相違が確認された場合はcustom decoder APIを利用する。今回は根拠のないraw適用・custom実装・4処理ノード変更は行わない。
+両DockerfileはmanifestをCOPY後、共通prepare-pose-modelでHEFを取得する。ダウンロード失敗・空ファイル・指定SHA256不一致で停止し、一時ファイルは同じRUN内で削除。Composeはイメージ内/modelsを使用し、既存hef_path/model_manifest/PYTHONPATHを維持する。
+
+manifestのdecoder.typeと入力量子化・9出力名・閾値を確定し、verified_for_hef=trueとした。根拠は上記の静的仕様照合であり、verification.inference_validated/performance_validatedはfalse。静的に未確定のまま起動拒否を解除したものではない。実画像での数値一致・精度・全系性能を確認したわけでもない。
 
 | 確認項目 | 実HEF・元モデルで照合する内容 |
 |---|---|
-| verified_for_hef=false | 実ファイル出所・hash・対象Hailo-8・compiler/runtime適合を記録してから変更 |
-| input_shape=[640,640,3] | 実入力数（backendは1入力のみ）、HWC順序、batch=1、RGB/BGR |
-| pad_value=114 | letterbox、丸め、padding位置・色、補間、元1280×720への逆変換が元モデルと一致するか |
-| input_dtype / input_quantized / scale / offset | host UINT8/FLOAT32、HEF内正規化と量子化、二重処理の有無 |
-| decoder.type / heads | raw 9出力か組込NMS等か、出力名/形状/順序を実HEFから取得し、raw/customを選択 |
-| reg_max=16 / stride=8,16,32 | DFL bins、anchor/grid、BBox距離とkeypointの式・単位が一致するか |
-| scores / keypoint_scores | 各出力がlogitsか確率か、どの出力へsigmoidが含まれるか |
-| missing_joints=none | 0値や低scoreを勝手に欠損化しない。明示的欠損がある場合だけNaN三値へ変換し、必要ならHEF固有decoderを用意 |
-| reference_postprocess | 公開ソースのscore>0.001/IoU=0.7/max=300は参考情報として記録。実decoderへの接続は未完了 |
-| decoderの最終契約 | 全人物、入力画素座標のxyxy＋det_score＋COCO17の(N,56)、正常0人は(0,56)、不整合は例外 |
+| HEF SHA256 | Pi実測値を将来のビルドで照合する処理は未実行 |
+| 前処理・逆変換 | 1280×720→640×360＋上下140、実画像のRGB/画素位置と元座標復元を確認 |
+| 数値出力 | 公式とのDFL/XY/score/NMS一致を、閾値境界・同scoreを含め実画像で比較 |
+| 正常0人・複数人 | `(0,56)`とNMS後最大300人の`(N,56)`、全COCO17・BBox・score保持を確認 |
+| 欠損 | rawはmissing_joints=none。0座標や低scoreの関節を欠損化しない。明示的欠損を使う別契約はNaN三値を要求 |
+| NMS時間 | 最大8400候補、最悪O(K²)。300件はNMS後の上限で、事前候補削減はしていない。候補数別時間・メモリとp95/p99遅延、全系10Hzを評価 |
 
 元RGBサイズはメッセージへ追加せず、カメラ・Pose設定・GPUサーバの事前設定を一致させる。公式ベンチマークは別ホスト・PCIe条件の値であり、Pi全系10Hzの根拠には使わない。モデル/重みのライセンスも配布元の条件を確認してから利用する。
 
@@ -206,18 +204,18 @@ manifestのdecoder.typeとhost量子化関連は未確定値にし、verified_fo
 ## 7. 未解決事項・開始条件
 
 1. **EdgeRMソースへのアクセス**。ref/commit/helper API/実依存閉包/COLCON_IGNORE整合を未確認のまま確定しない。
-2. **Hailo配布物とABI**。ホストdriver/FWに合わせruntime/wheelを4.23.0固定。HTTPS HEAD 200確認済みで事前配置は不要。公開SHA256、本体metadata/ELF、Ubuntu 24.04上のnative ABI、実HEF互換は未確認。
+2. **Hailo配布物とABI**。ホストdriver/FWに合わせruntime/wheelを4.23.0固定。runtime/wheelの公開SHA256・本体metadata/ELFとUbuntu 24.04上のnative ABIは未確認。HEFはPi解析結果と実測SHA256を反映済みだが、実推論は未検証。
 3. **修正したDocker依存の実確認**。RealSense移転URL、rclcpp_action/rosbag2の明示要求、依存列挙・除外、Hailoのpip依存解決禁止をソース上修正済み。private forkの依存充足と実配布物/native ABIは未確認。
 4. **追加source lock**。private forkに不足するpackageと互換版が判明してから5変数を埋める。公開repoが存在するだけでは採用SHAを決定しない。
-5. **実機設定**。デバイス/GID、Livox IP、取付TF校正、カメラサイズ、時計、モデルmanifestは未確定。
+5. **実機設定・推論**。デバイス/GID、Livox IP、取付TF校正、時計、実推論・精度・10Hzは未確認。manifestの静的仕様照合は完了。
 
 ## 8. 次の実機検証の順序（今回実行しない）
 
 ユーザーがPi段階と個々の導入・ビルド・検証を明示的に許可した後に進める。依存不足のままビルドに突入せず、各段階の結果を次の条件にする。
 
 1. PiのOS/arch/kernel/headers/RAM/電源/冷却を記録。既存Hailo driver/FWとD455/USB、MID-360 NICの状態を確認する。
-2. ホストdriver/FW 4.23.0を維持し、固定runtime/wheelと実HEFの出所・ABI・互換を確認する。配布元SHA256が入手できた場合だけ照合値を追加する。ホストdriverの更新はこの手順に含めない。
-3. 通常版向け`.env`を候補4 SHAと実デバイス/GID/Domainで準備。HailoRT/HEFの手動配置は不要。ビルド時の固定HTTPS配布先への接続条件を準備する。manifest/decoderを実HEFと照合して確定するまで推論へ進まない。
+2. ホストdriver/FW 4.23.0を維持し、固定runtime/wheelと実HEFの出所・ABI・互換を確認する。HEFは提供済みPi実測SHA256を使用。runtime/wheelの配布元SHA256が入手できた場合はその照合も追加する。ホストdriverの更新はこの手順に含めない。
+3. 通常版向け`.env`を候補4 SHAと実デバイス/GID/Domainで準備。HailoRT/HEFの手動配置は不要。固定HTTPS配布先への接続条件を準備し、ビルド時のHEF SHA256一致を記録する。manifestは静的照合済みだが、推論を今回自動開始する許可ではない。
 4. まず通常ROS版だけをビルドする。依存解決、msg/srv生成、driver/自作ノードのビルド結果を記録し、失敗時はここで止める。
 5. D455 RGBのみ、Livox PointCloud2の実topic/QoS/frame_id/tag型、元stampの時計基準を確認。TF/ROIと正常空点群、人物0人/推論エラーの区別、manifest復元を確認する。
 6. `ENABLE_BRIDGE=false`で全処理経路と元stampの厳密集約を確認。到着順・欠落・期限・重複・再起動/空結果について、別途許可された検証を行う。

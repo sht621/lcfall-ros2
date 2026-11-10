@@ -20,6 +20,7 @@ decoder:
   missing_joints: none
   person_score_threshold: null  # REQUIRED: actual model's person selection condition
   nms_iou_threshold: null       # REQUIRED: actual model's NMS condition
+  max_detections: null          # REQUIRED: actual model's post-NMS detection limit
   heads:
     - {stride: 8, boxes: REPLACE_stride8_boxes, scores: REPLACE_stride8_scores, keypoints: REPLACE_stride8_keypoints}
     - {stride: 16, boxes: REPLACE_stride16_boxes, scores: REPLACE_stride16_scores, keypoints: REPLACE_stride16_keypoints}
