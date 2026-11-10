@@ -62,10 +62,22 @@ def make_nodes(context):
                 '--frame-id', mount['parent_frame'], '--child-frame-id', mount['child_frame'],
             ]))
     names = ['frame_publisher_node', 'lidar_preprocess_node', 'pose_estimation_node', 'sync_node']
+    bridge_overrides = {}
     if enabled(context, 'enable_bridge'):
         names.append('topic_to_service_bridge_node')
+        # Empty launch arguments preserve the YAML setting. Compose explicitly
+        # selects the mode; these overrides apply only to the bridge process.
+        for name in ('use_edgerm', 'edgerm_verbose'):
+            if LaunchConfiguration(name).perform(context) != '':
+                bridge_overrides[name] = enabled(context, name)
+        for name in ('edgerm_url', 'edgerm_runtime_name', 'service_name'):
+            value = LaunchConfiguration(name).perform(context)
+            if value != '':
+                bridge_overrides[name] = value
     nodes += [Node(package='fall_detection_edge', executable=name, name=name,
-                   parameters=[params_path], output='screen') for name in names]
+                   parameters=([params_path, bridge_overrides]
+                               if name == 'topic_to_service_bridge_node' else [params_path]),
+                   output='screen') for name in names]
     # Required process exits stop the whole pipeline. Restart deliberately after
     # correction, clearing correlation/request state instead of mixing epochs.
     handlers = [RegisterEventHandler(OnProcessExit(
@@ -86,5 +98,10 @@ def generate_launch_description():
         DeclareLaunchArgument('start_drivers', default_value='true'),
         DeclareLaunchArgument('publish_mount_tf', default_value='true'),
         DeclareLaunchArgument('enable_bridge', default_value='true'),
+        DeclareLaunchArgument('use_edgerm', default_value=''),
+        DeclareLaunchArgument('edgerm_url', default_value=''),
+        DeclareLaunchArgument('edgerm_runtime_name', default_value=''),
+        DeclareLaunchArgument('edgerm_verbose', default_value=''),
+        DeclareLaunchArgument('service_name', default_value=''),
         OpaqueFunction(function=make_nodes),
     ])

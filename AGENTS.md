@@ -11,9 +11,9 @@
 - This prohibition includes `pytest`, `unittest`, `colcon build`, `docker build`, `docker compose up`, `ros2 run`, `ros2 launch`, `python -m compileall`, execution-based lint checks, and any command that launches a node or checks runtime behavior.
 - Work on the MacBook **by reading and editing source files only**. No Hailo-8 or ROS 2 sensor runtime is expected there.
 - Reviewing text, source code, package manifests, Dockerfiles, or configuration without executing them is permitted.
-- You may WRITE tests or test documentation if useful, but **do not run any tests**.
-- When implementation is complete, explicitly report **"Implementation complete; tests/build/hardware validation NOT RUN"**, summarize pending risks, and stop. **Do not begin validation automatically**, even at the end; wait until the user starts the Raspberry Pi stage and explicitly authorizes it.
-- Do not claim code is tested, compilable, production-ready, 10 Hz capable, or hardware compatible without evidence from the later Pi validation.
+- 完了時は日本語で簡潔に、変更内容・未解決事項・ビルド／テスト／実機検証が未実施であることを報告して停止する。
+- 実装完了後も自動で検証を開始しない。ユーザーがPi段階を開始し、明示的に許可するまで待つ。
+- 後のPi検証による証拠なしに、ビルド可能・動作確認済み・10Hz達成・ハードウェア互換とは主張しない。
 
 ## Architecture
 - New packages: `fall_detection_msgs` (ament_cmake) and `fall_detection_edge` (ament_python), with approved `.msg` and `SendSynchronizedFrame.srv` interface definitions.

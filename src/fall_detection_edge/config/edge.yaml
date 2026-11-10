@@ -33,7 +33,7 @@ frame_publisher_node:
     duplicate_history_size: 256  # implementation initial value, key history only
 topic_to_service_bridge_node:
   ros__parameters:
-    use_edgerm: true
+    use_edgerm: false  # Compose selects false for edge, true for edge-edgerm
     edgerm_url: ''           # REQUIRED for current EdgeRM transport
     edgerm_runtime_name: ''  # REQUIRED; must match server
     edgerm_verbose: false

@@ -1,0 +1,166 @@
+# syntax=docker/dockerfile:1
+# EdgeRM Jazzy is built from source on Ubuntu; never layered over stock ROS.
+# Source/configuration only. Private source/API and ARM64 compatibility unverified.
+FROM ubuntu:24.04
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+ARG DEBIAN_FRONTEND=noninteractive
+ARG BUILD_JOBS=1
+ENV LANG=C.UTF-8 LC_ALL=C.UTF-8 ROS_DISTRO=jazzy ROS_PYTHON_VERSION=3 \
+    ROS_INSTALL_BASE=/opt/ros/jazzy WORKSPACE_DIRECTORY=/opt/edge_ws \
+    PYTHONUNBUFFERED=1 LD_LIBRARY_PATH=/usr/local/lib CMAKE_PREFIX_PATH=/usr/local \
+    RCUTILS_LOGGING_USE_STDOUT=1 RCUTILS_LOGGING_BUFFERED_STREAM=1
+COPY build-tools.sh /usr/local/lib/edge-build-tools.sh
+# The apt-source release/checksum is the explicit noble input from the reference
+# ZIP, not a claim that it is the newest release. No ROS binary core is installed.
+RUN --mount=type=tmpfs,target=/tmp <<'BUILD'
+test "$(dpkg --print-architecture)" = arm64
+apt-get update
+apt-get install -y --no-install-recommends ca-certificates curl gnupg2 software-properties-common tzdata
+add-apt-repository -y universe
+curl --fail --location --silent --show-error \
+    https://github.com/ros-infrastructure/ros-apt-source/releases/download/1.1.0/ros2-apt-source_1.1.0.noble_all.deb \
+    --output /tmp/ros2-apt-source.deb
+printf '%s\n' '35441f3092fd05773a3c397fab38661bec466584c7a1f1c05366579997cb5fe7  /tmp/ros2-apt-source.deb' | sha256sum --strict --check
+apt-get install -y /tmp/ros2-apt-source.deb
+# Prevent rosdep or later driver/Hailo dependencies from replacing patched ROS.
+printf '%s\n' 'Package: ros-jazzy-*' 'Pin: version *' 'Pin-Priority: -1' \
+    > /etc/apt/preferences.d/edge-source-ros-only
+apt-get update
+apt-get install -y --no-install-recommends \
+    build-essential cmake git pkg-config libasio-dev libboost-json-dev \
+    libboost-python-dev libbullet-dev libconsole-bridge-dev libcurl4-openssl-dev \
+    liblttng-ust-dev liblz4-dev libmsgpack-dev liborocos-kdl-dev libspdlog-dev \
+    libsqlite3-dev libssl-dev libtinyxml2-dev libxml2-utils libyaml-cpp-dev libyaml-dev \
+    libzstd-dev lttng-tools pybind11-dev \
+    python3-cffi-backend python3-colcon-common-extensions python3-cryptography \
+    python3-dev python3-importlib-metadata python3-lark python3-lxml python3-numpy \
+    python3-pip python3-psutil python3-pykdl python3-rosdep python3-vcstool \
+    python3-opencv python3-yaml libopencv-dev libpcl-dev libapr1-dev rapidjson-dev \
+    libusb-1.0-0-dev libudev-dev libgl1-mesa-dev libglfw3-dev
+apt-get clean
+BUILD
+
+ARG EDGERM_ROS2_REF
+ARG EDGERM_ROS2_COMMIT
+# Extra public source locks are used only if the selected fork lacks the package.
+# They are exact commits, not assumed Jazzy-compatible branches.
+ARG IMAGE_COMMON_COMMIT
+ARG VISION_OPENCV_COMMIT
+ARG DIAGNOSTICS_COMMIT
+ARG PERCEPTION_PCL_COMMIT
+ARG PCL_MSGS_COMMIT
+RUN --mount=type=cache,id=edge-edgerm-sources-v1,target=/var/cache/edge-build,sharing=locked \
+    --mount=type=tmpfs,target=/run/edge-auth \
+    --mount=type=secret,id=github-access-token,required=true <<'BUILD'
+source /usr/local/lib/edge-build-tools.sh
+test -s /run/secrets/github-access-token || { echo 'EdgeRM source access requires the BuildKit GitHub secret' >&2; exit 1; }
+mkdir -p /var/cache/edge-build/edgerm-ros2
+cd /var/cache/edge-build/edgerm-ros2
+git-clone https://github.com/enjoydolylab/edgerm-ros2.git "$EDGERM_ROS2_REF" "$EDGERM_ROS2_COMMIT" src
+export EDGERM_ROS2_DIRECTORY="$PWD"
+# The reference ZIP has empty opt submodules, not their sources or gitlink locks.
+# Add only missing image/diagnostic/PCL dependencies. No GUI/robot/voice stack.
+available_packages="$(colcon list --base-paths src --names-only)"
+while read -r package directory repository commit; do
+    if ! grep -Fxq "$package" <<< "$available_packages"; then
+        if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Missing $package source; supply the full commit lock for $directory" >&2
+            exit 1
+        fi
+        mkdir -p "src/edge-opt/$directory"
+        (cd "src/edge-opt/$directory" && git-clone "$repository" "$commit" "$commit")
+    fi
+done <<SOURCES
+image_transport image_common https://github.com/ros-perception/image_common.git ${IMAGE_COMMON_COMMIT:-UNSET}
+cv_bridge vision_opencv https://github.com/ros-perception/vision_opencv.git ${VISION_OPENCV_COMMIT:-UNSET}
+diagnostic_updater diagnostics https://github.com/ros/diagnostics.git ${DIAGNOSTICS_COMMIT:-UNSET}
+pcl_conversions perception_pcl https://github.com/ros-perception/perception_pcl.git ${PERCEPTION_PCL_COMMIT:-UNSET}
+pcl_msgs pcl_msgs https://github.com/ros-perception/pcl_msgs.git ${PCL_MSGS_COMMIT:-UNSET}
+SOURCES
+# Fail explicitly if the private source layout/API differs from the ZIP's build
+# recipe. This file is provided by edgerm-ros2, not by this application or the ZIP.
+test -f src/rosdep-install.py || { echo 'Selected edgerm-ros2 has no src/rosdep-install.py; requires Pi verification' >&2; exit 1; }
+targets=(
+    rclpy rclcpp_components rclcpp_lifecycle rmw_fastrtps_cpp rmw_edgerm_cpp rmw_edgerm_py
+    ros2launch ros2run ros2service ament_cmake_auto rosidl_default_generators
+    sensor_msgs std_msgs geometry_msgs nav_msgs tf2_ros tf2_ros_py tf2_eigen tf2_geometry_msgs
+    message_filters cv_bridge camera_info_manager image_transport diagnostic_updater pcl_conversions
+)
+available_packages="$(colcon list --base-paths src --names-only)"
+for package in "${targets[@]}"; do
+    grep -Fxq "$package" <<< "$available_packages" || {
+        echo "Required source package missing in selected EdgeRM checkout: $package" >&2; exit 1;
+    }
+done
+if [[ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]]; then rosdep init; fi
+rosdep update --rosdistro jazzy
+apt-get update
+# Calling convention from reference ZIP; private helper internals not accessible
+# in this source-only stage. apt pin blocks accidental official ROS substitution.
+python3 src/rosdep-install.py "${targets[@]}" --dependency-types exec
+python3 src/rosdep-install.py "${targets[@]}" --dependency-types buildtool_export build buildtool build_export
+colcon-build src /opt/ros/jazzy "${targets[@]}"
+BUILD
+
+ARG LIBREALSENSE_COMMIT
+ARG REALSENSE_ROS_COMMIT
+ARG LIVOX_SDK2_COMMIT
+ARG LIVOX_DRIVER_COMMIT
+RUN --mount=type=cache,id=edge-edgerm-sources-v1,target=/var/cache/edge-build,sharing=locked <<'BUILD'
+source /usr/local/lib/edge-build-tools.sh
+mkdir -p /var/cache/edge-build/librealsense /var/cache/edge-build/Livox-SDK2
+cd /var/cache/edge-build/librealsense
+git-clone https://github.com/IntelRealSense/librealsense.git "$LIBREALSENSE_COMMIT" "$LIBREALSENSE_COMMIT"
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DFORCE_RSUSB_BACKEND=ON \
+    -DBUILD_EXAMPLES=OFF -DBUILD_GRAPHICAL_EXAMPLES=OFF \
+    -DBUILD_PYTHON_BINDINGS=OFF -DBUILD_WITH_CUDA=OFF
+cmake --build build -j "$BUILD_JOBS"
+cmake --install build
+cd /var/cache/edge-build/Livox-SDK2
+git-clone https://github.com/Livox-SDK/Livox-SDK2.git "$LIVOX_SDK2_COMMIT" "$LIVOX_SDK2_COMMIT"
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j "$BUILD_JOBS"
+cmake --install build
+ldconfig
+BUILD
+WORKDIR /opt/edge_ws
+RUN --mount=type=cache,id=edge-edgerm-sources-v1,target=/var/cache/edge-build,sharing=locked <<'BUILD'
+source /usr/local/lib/edge-build-tools.sh
+mkdir -p /var/cache/edge-build/realsense-ros /var/cache/edge-build/livox_ros_driver2 src
+cd /var/cache/edge-build/realsense-ros
+git-clone https://github.com/IntelRealSense/realsense-ros.git "$REALSENSE_ROS_COMMIT" "$REALSENSE_ROS_COMMIT"
+cp -a . /opt/edge_ws/src/realsense-ros
+cd /var/cache/edge-build/livox_ros_driver2
+git-clone https://github.com/Livox-SDK/livox_ros_driver2.git "$LIVOX_DRIVER_COMMIT" "$LIVOX_DRIVER_COMMIT"
+cp -a . /opt/edge_ws/src/livox_ros_driver2
+cp /opt/edge_ws/src/livox_ros_driver2/package_ROS2.xml /opt/edge_ws/src/livox_ros_driver2/package.xml
+cd /opt/edge_ws
+source /opt/ros/jazzy/setup.bash
+EDGE_CMAKE_ARGS=(-DROS_EDITION=ROS2 -DDISTRO_ROS=jazzy)
+colcon-build src /opt/edge_ws/install realsense2_camera livox_ros_driver2
+BUILD
+
+ARG HAILORT_DEB
+ARG HAILORT_WHEEL
+COPY artifacts/ /tmp/hailo-artifacts/
+RUN test -n "$HAILORT_DEB" && test -n "$HAILORT_WHEEL" && \
+    test "$(dpkg-deb --field "/tmp/hailo-artifacts/$HAILORT_DEB" Architecture)" = arm64 && \
+    apt-get update && apt-get install -y --no-install-recommends "/tmp/hailo-artifacts/$HAILORT_DEB" && \
+    python3 -m pip install --break-system-packages --no-cache-dir "/tmp/hailo-artifacts/$HAILORT_WHEEL" && apt-get clean
+COPY src/fall_detection_msgs/ src/fall_detection_msgs/
+COPY src/fall_detection_edge/ src/fall_detection_edge/
+RUN <<'BUILD'
+source /opt/ros/jazzy/setup.bash
+source /usr/local/lib/edge-build-tools.sh
+EDGE_CMAKE_ARGS=(-DROS_EDITION=ROS2 -DDISTRO_ROS=jazzy)
+colcon-build src /opt/edge_ws/install fall_detection_edge
+BUILD
+COPY config/livox/MID360_config.json /opt/edge-config/MID360_config.json
+COPY --chmod=755 ros_entrypoint.sh /ros_entrypoint.sh
+RUN if ! getent passwd 1000 > /dev/null; then useradd --uid 1000 --create-home --shell /bin/bash edge; fi
+USER 1000:1000
+ENV XDG_CACHE_HOME=/tmp/edge-cache ROS_LOG_DIR=/tmp/ros-logs \
+    LIVOX_CONFIG_PATH=/opt/edge-config/MID360_config.json
+WORKDIR /opt/edge_ws
+ENTRYPOINT ["/ros_entrypoint.sh"]
+CMD ["ros2", "launch", "fall_detection_edge", "edge.launch.py", "use_edgerm:=true"]

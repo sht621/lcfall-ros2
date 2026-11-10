@@ -23,9 +23,10 @@ class TopicToServiceBridgeNode(Node):
             verbose = parameter(self, 'edgerm_verbose', False)
             if not url or not runtime:
                 raise ValueError('EdgeRM URL/runtime must be configured; requires Pi verification')
-            from fall_detection_edgerm import SendSynchronizedFrame as EdgeRMService
-            self.middleware = EdgeRMService(url, runtime, verbose)
-            self.client = self.create_client(self.middleware, service_name)
+            from rmw_edgerm.middleware import Middleware
+            self.middleware = Middleware(url, runtime, verbose)
+            self.client = self.create_client(
+                SendSynchronizedFrame, service_name, middleware=self.middleware)
         else:
             # Explicit ordinary ROS service mode, never an automatic fallback.
             self.client = self.create_client(SendSynchronizedFrame, service_name)

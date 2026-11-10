@@ -38,3 +38,14 @@
 - 全系持続10Hz、CPU/温度/遅延/滞留、サービス期限境界と遅延応答、再起動残留、移動中の性能。
 
 ビルド・テスト・構文検査・実行型lint・ノード起動・疑似データ・ベンチマーク・ハードウェア照会・インストール・配備は一切実施していない。コンパイル可能、10Hz達成、ハードウェア互換、production-readyとは主張しない。ユーザーがPi段階を開始し、明示的に検証を許可するまで停止する。
+
+## Docker両環境対応のソース更新（2026-11-10）
+
+- 前回の未コミット公式Middleware API移行（型別binding削除）を維持。今回の根拠は`Downloads/robot-agent-edgerm-main.zip`（commitコメント`be22bb43865e3aea8185929a00ef8800f35bfd93`）であり、旧ローカルリポジトリは再参照していない。
+- 通常ROS専用DockerfileとUbuntu 24.04から改変Jazzyを構築するDockerfile.edgermを分離。Composeはedge/edge-edgermの1ファイル。EdgeRMのみprofileとBuildKit Secretを使用。
+- build-tools.shのgit-cloneをSDK/driver/EdgeRMソース取得から実使用し、固定commit確認・submodule・専用cache内限定のreset/clean・tmpfs askpassを実装。認証情報をremote/ARG/ENVへ保存しない。colcon-buildはpackages-up-to、テスト無効、逐次パッケージと並列ジョブ数を管理。
+- ros_entrypoint.shをルートへ統一し、旧docker/entrypoint.shと空になったdockerディレクトリを削除。両setup必須・読込失敗時停止・execを共通化。
+- Launchに通信パラメータの明示上書きを追加し、Composeからmode/URL/runtime/verbose/service名をブリッジだけへ渡す。4ノードの処理、msg/srv、TF/ROI、bridge送信制御は変更していない。
+- `.env.example`、`.dockerignore`、README、AGENTSの日本語完了報告を更新。以前のソースのみレビュー/Pi引継ぎにある旧bindingオプションと単一Docker切替の説明は過去時点の履歴であり、現行の構築説明はREADMEを優先する。
+- 未解消: ZIPにEdgeRM本体とoptサブモジュールの中身はなく、GitHubの非公開ソース読出しも404。`src/rosdep-install.py`の内部実装/選択commitのパッケージ一覧は確認できない。参考と同じ呼出し方と存在guardを記述。公開manifestから画像・診断・PCL依存を整理し、不足時の固定ソース追加を記述したが、固定SHAとJazzy/ARM64適合は未選定。requires Pi verification。
+- 後のPi項目: 両Dockerビルド、apt pinでの依存充足、Hailo/CPython ABI、センサ権限・時計・tag、Launch設定反映、通常ROS/EdgeRM通信とFuture解放、全系10Hzとメモリ/温度。今回もビルド・テスト・lint・構文チェック・ROS/Docker実行・疑似データ・ハードウェア検証・コミット・Pushは行っていない。ソース差分確認後に停止する。

@@ -1,5 +1,10 @@
 .git
+**/.git
 .env
+.env.*
+.secrets
+**/*token*
+**/*.pem
 data
 .DS_Store
 **/__pycache__

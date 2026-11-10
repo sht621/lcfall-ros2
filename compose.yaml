@@ -1,41 +1,47 @@
-# Not executed. Populate .env only during the explicitly authorized Pi stage.
+# Source/configuration only; do not run until Pi validation is explicitly authorized.
+x-driver-build-args: &driver-build-args
+  LIBREALSENSE_COMMIT: ${LIBREALSENSE_COMMIT:-}
+  REALSENSE_ROS_COMMIT: ${REALSENSE_ROS_COMMIT:-}
+  LIVOX_SDK2_COMMIT: ${LIVOX_SDK2_COMMIT:-}
+  LIVOX_DRIVER_COMMIT: ${LIVOX_DRIVER_COMMIT:-}
+  HAILORT_DEB: ${HAILORT_DEB:-}
+  HAILORT_WHEEL: ${HAILORT_WHEEL:-}
+  BUILD_JOBS: ${BUILD_JOBS:-1}
+
+x-runtime: &runtime
+  platform: linux/arm64
+  network_mode: host
+  init: true
+  stop_grace_period: 5s
+  tmpfs:
+    - /tmp:rw,nosuid,nodev,mode=1777,size=512m
+  environment:
+    ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+    ROS_LOCALHOST_ONLY: '0'
+    RMW_IMPLEMENTATION: rmw_fastrtps_cpp
+    PYTHONPATH: /models
+    LIVOX_CONFIG_PATH: /opt/edge-config/MID360_config.json
+  devices:
+    - ${HAILO_DEVICE:-/dev/hailo0}:/dev/hailo0
+    - ${REALSENSE_USB_DEVICE:?Set actual D455 /dev/bus/usb/BBB/DDD path}:${REALSENSE_USB_DEVICE}
+  group_add:
+    - ${HAILO_GID:?Set numeric Hailo device group}
+    - ${USB_GID:?Set numeric D455 USB group}
+  volumes:
+    - ./models:/models:ro
+    - ./src/fall_detection_edge/config:/opt/edge-params:ro
+    - ./config/livox/MID360_config.json:/opt/edge-config/MID360_config.json:ro
+  logging:
+    driver: none
+
 services:
   edge:
+    <<: *runtime
     image: fall-detection-edge:jazzy-arm64
-    platform: linux/arm64
     build:
       context: .
-      args:
-        EDGE_ROS_BASE_IMAGE: ${EDGE_ROS_BASE_IMAGE:-ros:jazzy-ros-base}
-        WITH_EDGERM: ${WITH_EDGERM:-OFF}
-        LIBREALSENSE_REF: ${LIBREALSENSE_REF:?Set exact librealsense revision}
-        REALSENSE_ROS_REF: ${REALSENSE_ROS_REF:?Set exact Jazzy realsense-ros revision}
-        LIVOX_SDK2_REF: ${LIVOX_SDK2_REF:?Set exact SDK2 revision}
-        LIVOX_DRIVER_REF: ${LIVOX_DRIVER_REF:?Set exact ROS2 driver revision}
-        HAILORT_DEB: ${HAILORT_DEB:?Set ARM64 runtime deb basename from artifacts/}
-        HAILORT_WHEEL: ${HAILORT_WHEEL:?Set matching cp312 ARM64 wheel basename from artifacts/}
-        BUILD_JOBS: ${BUILD_JOBS:-2}
-    network_mode: host
-    init: true
-    stop_grace_period: 5s
-    tmpfs:
-      - /tmp:rw,nosuid,nodev,mode=1777,size=512m
-    environment:
-      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
-      ROS_LOCALHOST_ONLY: '0'
-      PYTHONPATH: /models
-      LIVOX_CONFIG_PATH: /opt/edge-config/MID360_config.json
-    devices:
-      - ${HAILO_DEVICE:-/dev/hailo0}:/dev/hailo0
-      # Pin to D455's actual USB bus/device; re-evaluate after reconnect.
-      - ${REALSENSE_USB_DEVICE:?Set actual /dev/bus/usb/BBB/DDD path}:${REALSENSE_USB_DEVICE}
-    group_add:
-      - ${HAILO_GID:?Set numeric group owning Hailo device}
-      - ${USB_GID:?Set numeric group permitting D455 USB access}
-    volumes:
-      - ./models:/models:ro
-      - ./src/fall_detection_edge/config:/opt/edge-params:ro
-      - ./config/livox/MID360_config.json:/opt/edge-config/MID360_config.json:ro
+      dockerfile: Dockerfile
+      args: *driver-build-args
     command:
       - ros2
       - launch
@@ -45,7 +51,42 @@ services:
       - mount_file:=/opt/edge-params/mount.yaml
       - enable_bridge:=${ENABLE_BRIDGE:-true}
       - publish_mount_tf:=${PUBLISH_MOUNT_TF:-true}
-    # No automatic restart, privileged mode, GPU runtime, raw RGB server stream,
-    # or persistent application logs. View attached console during Pi operation.
-    logging:
-      driver: none
+      - use_edgerm:=false
+      - service_name:=${FRAME_SERVICE_NAME:-/send_synchronized_frame}
+
+  edge-edgerm:
+    <<: *runtime
+    image: fall-detection-edge:edgerm-jazzy-arm64
+    profiles: [edgerm]
+    build:
+      context: .
+      dockerfile: Dockerfile.edgerm
+      args:
+        <<: *driver-build-args
+        EDGERM_ROS2_REF: ${EDGERM_ROS2_REF:-}
+        EDGERM_ROS2_COMMIT: ${EDGERM_ROS2_COMMIT:-}
+        IMAGE_COMMON_COMMIT: ${IMAGE_COMMON_COMMIT:-}
+        VISION_OPENCV_COMMIT: ${VISION_OPENCV_COMMIT:-}
+        DIAGNOSTICS_COMMIT: ${DIAGNOSTICS_COMMIT:-}
+        PERCEPTION_PCL_COMMIT: ${PERCEPTION_PCL_COMMIT:-}
+        PCL_MSGS_COMMIT: ${PCL_MSGS_COMMIT:-}
+      secrets: [github-access-token]
+    command:
+      - ros2
+      - launch
+      - fall_detection_edge
+      - edge.launch.py
+      - params_file:=/opt/edge-params/edge.yaml
+      - mount_file:=/opt/edge-params/mount.yaml
+      - enable_bridge:=${ENABLE_BRIDGE:-true}
+      - publish_mount_tf:=${PUBLISH_MOUNT_TF:-true}
+      - use_edgerm:=true
+      - edgerm_url:=${EDGERM_URL:-http://localhost:8332/api/v0.5}
+      - edgerm_runtime_name:=${EDGERM_RUNTIME_NAME:-fall_detection_frame_runtime}
+      - edgerm_verbose:=${EDGERM_VERBOSE:-false}
+      - service_name:=${FRAME_SERVICE_NAME:-/send_synchronized_frame}
+
+secrets:
+  github-access-token:
+    # Resolved only for the EdgeRM build; never a build ARG or runtime variable.
+    environment: GITHUB_ACCESS_TOKEN
