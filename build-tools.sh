@@ -95,5 +95,72 @@ colcon-build() (
         --cmake-args -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release \
         "${EDGE_CMAKE_ARGS[@]}"
 )
+install-hailort() (
+    # Image build only. Inspect supplied artifacts; never choose a runtime version
+    # or let pip resolve dependencies over apt's NumPy/OpenCV/cv_bridge stack.
+    set -euo pipefail
+    : "${HAILORT_DEB:?Provide the real ARM64 HailoRT deb filename}"
+    : "${HAILORT_WHEEL:?Provide the matching CPython 3.12 ARM64 wheel filename}"
+    local deb="/tmp/hailo-artifacts/$HAILORT_DEB"
+    local wheel="/tmp/hailo-artifacts/$HAILORT_WHEEL"
+    test "$(dpkg --print-architecture)" = arm64
+    test "$(dpkg-deb --field "$deb" Architecture)" = arm64
+    test "$(dpkg-deb --field "$deb" Package)" = hailort
+    apt-get update
+    apt-get install -y --no-install-recommends "$deb"
+    # Inspect Python dependencies after apt has resolved the deb dependencies.
+    /usr/bin/python3 - "$deb" "$wheel" <<'PYTHON'
+import email
+import importlib.metadata
+from pathlib import Path
+import subprocess
+import sys
+import zipfile
+
+from packaging.requirements import Requirement
+from packaging.specifiers import SpecifierSet
+from packaging.tags import sys_tags
+from packaging.utils import canonicalize_name, parse_wheel_filename
+from packaging.version import Version
+
+if sys.implementation.name != 'cpython' or sys.version_info[:2] != (3, 12):
+    raise SystemExit('Hailo artifacts require the Jazzy CPython 3.12 environment')
+deb, wheel = sys.argv[1:]
+name, version, _, tags = parse_wheel_filename(Path(wheel).name)
+if canonicalize_name(name) != 'hailort' or not tags.intersection(sys_tags()):
+    raise SystemExit('Expected a hailort wheel compatible with this ARM64 CPython')
+deb_version = subprocess.check_output(
+    ['dpkg-deb', '--field', deb, 'Version'], text=True).strip()
+upstream_version = deb_version.split(':', 1)[-1].split('-', 1)[0]
+if Version(upstream_version) != version:
+    raise SystemExit('HailoRT deb and wheel release versions differ')
+with zipfile.ZipFile(wheel) as archive:
+    paths = [p for p in archive.namelist() if p.endswith('.dist-info/METADATA')]
+    if len(paths) != 1:
+        raise SystemExit('Expected exactly one wheel METADATA file')
+    metadata = email.message_from_bytes(archive.read(paths[0]))
+if canonicalize_name(metadata['Name']) != 'hailort' or Version(metadata['Version']) != version:
+    raise SystemExit('HailoRT wheel filename and METADATA differ')
+if not SpecifierSet(metadata.get('Requires-Python', '')).contains(
+        '.'.join(map(str, sys.version_info[:3]))):
+    raise SystemExit('HailoRT Requires-Python excludes this interpreter')
+for value in metadata.get_all('Requires-Dist', []):
+    requirement = Requirement(value)
+    if requirement.marker and not requirement.marker.evaluate({'extra': ''}):
+        continue
+    if requirement.url or requirement.extras:
+        raise SystemExit(f'Review unsupported wheel dependency manually: {value}')
+    try:
+        installed = importlib.metadata.version(requirement.name)
+    except importlib.metadata.PackageNotFoundError:
+        raise SystemExit(f'Provide an apt dependency before installing HailoRT: {value}')
+    if not requirement.specifier.contains(installed):
+        raise SystemExit(f'Installed dependency {requirement.name}={installed} excludes {value}')
+PYTHON
+    /usr/bin/python3 -m pip install --break-system-packages --no-cache-dir \
+        --no-index --no-deps "$wheel"
+    apt-get clean
+)
+
 # Callers may append driver-specific CMake definitions before colcon-build.
 EDGE_CMAKE_ARGS=()

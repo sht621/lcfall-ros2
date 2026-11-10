@@ -14,7 +14,7 @@
 - 完了時は日本語で簡潔に、変更内容・未解決事項・ビルド／テスト／実機検証が未実施であることを報告して停止する。
 - 実装完了後も自動で検証を開始しない。ユーザーがPi段階を開始し、明示的に許可するまで待つ。
 - 後のPi検証による証拠なしに、ビルド可能・動作確認済み・10Hz達成・ハードウェア互換とは主張しない。
-
+k
 ## Architecture
 - New packages: `fall_detection_msgs` (ament_cmake) and `fall_detection_edge` (ament_python), with approved `.msg` and `SendSynchronizedFrame.srv` interface definitions.
 - Sensor input → `sync_node` → parallel `pose_estimation_node` and `lidar_preprocess_node` → `frame_publisher_node` → `/synchronized_frame`.

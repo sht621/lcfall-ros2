@@ -21,19 +21,21 @@ RUN test "$(dpkg --print-architecture)" = arm64 && \
     apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates git cmake build-essential pkg-config python3-pip python3-dev \
     python3-colcon-common-extensions python3-numpy python3-opencv python3-yaml \
+    python3-packaging python3-argcomplete python3-contextlib2 python3-future python3-netaddr python3-netifaces \
     libusb-1.0-0-dev libudev-dev libssl-dev libcurl4-openssl-dev \
     libgl1-mesa-dev libglfw3-dev libopencv-dev libpcl-dev libapr1-dev rapidjson-dev \
     ros-jazzy-cv-bridge ros-jazzy-message-filters ros-jazzy-tf2-ros \
     ros-jazzy-tf2-ros-py ros-jazzy-tf2-eigen ros-jazzy-tf2-geometry-msgs \
     ros-jazzy-pcl-conversions ros-jazzy-diagnostic-updater ros-jazzy-image-transport \
     ros-jazzy-camera-info-manager ros-jazzy-rosidl-default-generators \
-    ros-jazzy-ament-cmake-auto ros-jazzy-rclcpp-components ros-jazzy-nav-msgs && apt-get clean
+    ros-jazzy-ament-cmake-auto ros-jazzy-rclcpp-components ros-jazzy-rclcpp-action \
+    ros-jazzy-rosbag2 ros-jazzy-nav-msgs && apt-get clean
 
 RUN --mount=type=cache,id=edge-standard-sources-v1,target=/var/cache/edge-build,sharing=locked <<'BUILD'
 source /usr/local/lib/edge-build-tools.sh
 mkdir -p /var/cache/edge-build/librealsense /var/cache/edge-build/Livox-SDK2
 cd /var/cache/edge-build/librealsense
-git-clone https://github.com/IntelRealSense/librealsense.git "$LIBREALSENSE_COMMIT" "$LIBREALSENSE_COMMIT"
+git-clone https://github.com/realsenseai/librealsense.git "$LIBREALSENSE_COMMIT" "$LIBREALSENSE_COMMIT"
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DFORCE_RSUSB_BACKEND=ON \
     -DBUILD_EXAMPLES=OFF -DBUILD_GRAPHICAL_EXAMPLES=OFF \
     -DBUILD_PYTHON_BINDINGS=OFF -DBUILD_WITH_CUDA=OFF
@@ -51,7 +53,7 @@ RUN --mount=type=cache,id=edge-standard-sources-v1,target=/var/cache/edge-build,
 source /usr/local/lib/edge-build-tools.sh
 mkdir -p /var/cache/edge-build/realsense-ros /var/cache/edge-build/livox_ros_driver2 src
 cd /var/cache/edge-build/realsense-ros
-git-clone https://github.com/IntelRealSense/realsense-ros.git "$REALSENSE_ROS_COMMIT" "$REALSENSE_ROS_COMMIT"
+git-clone https://github.com/realsenseai/realsense-ros.git "$REALSENSE_ROS_COMMIT" "$REALSENSE_ROS_COMMIT"
 cp -a . /opt/edge_ws/src/realsense-ros
 cd /var/cache/edge-build/livox_ros_driver2
 git-clone https://github.com/Livox-SDK/livox_ros_driver2.git "$LIVOX_DRIVER_COMMIT" "$LIVOX_DRIVER_COMMIT"
@@ -59,10 +61,7 @@ cp -a . /opt/edge_ws/src/livox_ros_driver2
 cp /opt/edge_ws/src/livox_ros_driver2/package_ROS2.xml /opt/edge_ws/src/livox_ros_driver2/package.xml
 BUILD
 COPY artifacts/ /tmp/hailo-artifacts/
-RUN test -n "$HAILORT_DEB" && test -n "$HAILORT_WHEEL" && \
-    test "$(dpkg-deb --field "/tmp/hailo-artifacts/$HAILORT_DEB" Architecture)" = arm64 && \
-    apt-get update && apt-get install -y --no-install-recommends "/tmp/hailo-artifacts/$HAILORT_DEB" && \
-    python3 -m pip install --break-system-packages --no-cache-dir "/tmp/hailo-artifacts/$HAILORT_WHEEL" && apt-get clean
+RUN source /usr/local/lib/edge-build-tools.sh && install-hailort
 COPY src/fall_detection_msgs/ src/fall_detection_msgs/
 COPY src/fall_detection_edge/ src/fall_detection_edge/
 RUN <<'BUILD'

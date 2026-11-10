@@ -55,3 +55,20 @@
 - 共通ログ設定をlocalドライバへ変更。max-size/max-fileは指定せず、両サービスに適用。READMEへlogs -fの操作例を追記。ROSノードのログ出力は未変更。
 - image_commonはimage_transport/camera_info_managerと必要なcamera_calibration_parsersを個別確認。不足時に固定commitを取得し、追加側の既存同名パッケージ・不要パッケージをCOLCON_IGNOREで除外する。その他の補完リポジトリも同じ除外処理を適用し、追加後に一覧を更新する。
 - 固定SHAは推測せず未設定を維持。非公開EdgeRM helperの実装・COLCON_IGNOREの扱い、選択commitの依存充足、両サービスのログ取得/ローテーションは requires Pi verification。ソース閲覧と編集・Git差分確認のみで、ビルド/テスト/lint/構文チェック/実行/コミット/Pushは未実施。
+
+## Pi環境準備の調査（2026-11-10）
+
+- ローカルとGitHubのfeature先頭が442477075621f0c5dc780a830b01e9f1947e318cで一致、開始時の作業ツリーはクリーン。pull/fetchや既存ソースの変更はしていない。
+- docs/pi_environment_preparation.mdを作成。公式release/sourceとtagのcommit objectから、RealSense SDK v2.56.4/ROS wrapper 4.56.4、Livox SDK v1.3.1/driver 1.2.6の4 SHAを候補として.env.exampleへ反映。これは実機適合の確定ではない。
+- EdgeRM非公開repoとhelperは今回もNot Found/404。ref/commitと追加5 source lockは未確定のまま。rclcpp_actionのCMake必須要求とEdgeRM targetsの照合、Livoxのrosbag2宣言依存、RealSense URL移転、NumPy ABIの確認点を報告し、Dockerfile自体は改修していない。
+- Hailo-8用4.24.0と同版PCIe driver、Model Zoo v2.19.0をソース候補として整理。cp312 ARM64 wheel/debの実ファイルは未確認。公式HEF配布リンクとmanifest照合項目を記録したが、配布物取得・HEF読出し・Hailo/センサ照会はしていない。
+- ビルド・テスト・lint・構文チェック・ROS/Docker実行・実機検証・インストール・コミット・Pushは未実施。調査・設定差分の閲覧後に停止する。
+
+## Pi Dockerビルド前の依存修正（2026-11-10）
+
+- 作業ブランチfeature/edge-pipelineを確認。前回調査の未コミット変更を保持し、両DockerfileのRealSense URLをrealsenseaiへ更新。選定済み4 SHAは変更していない。
+- 固定RealSense CMakeのrclcpp_action必須要求とLivox ROS2 manifestのrosbag2実行時依存を公開ソースで確認。通常版は対応ROS deb、EdgeRM版はfork内の必須source targetsへ明示。rclcpp/rosbag2を別のstock coreから補完する変更はしていない。
+- EdgeRMのrosdep helperへ渡す名前をcolconのpackages-up-to依存集合へ統一。追加sourceの重複を先に除外し、必要な推移依存の兄弟packageを残してから不要分へCOLCON_IGNOREを付ける。非公開helperの引数・除外挙動、forkの実依存と既存COLCON_IGNOREは未確認。
+- 共通install-hailortを記述。将来のDockerビルドでdeb/wheelの版・ARM64/CPythonタグ・依存metadataを照合し、apt側Python依存を保持してpipをno-deps/no-indexに制限する。実deb/wheelが未提供なので対応版は固定せず、Hailo/NumPy/cv_bridge/OpenCVのnative ABIはrequires Pi verification。
+- READMEと環境準備文書を更新。4処理ノード、ブリッジ送信制御、msg/srv、設計v2.6、Composeの2サービス構成は変更していない。
+- ソースとGit差分の閲覧のみ。ビルド・テスト・lint・構文チェック・ROS/Docker実行・インストール・実機検証・コミット・Pushは未実施。Implementation complete; tests/build/hardware validation NOT RUN。次の指示まで停止する。
