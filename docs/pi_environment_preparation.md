@@ -137,20 +137,22 @@ GitHub APIで観測した各default branchの最新commitは以下。これは�
 | runtime deb | [hailort_4.23.0_arm64.deb](https://dev-public.hailo.ai/2025_10/Hailo8/hailort_4.23.0_arm64.deb) | 6,877,660 bytes |
 | cp312 ARM64 wheel | [hailort-4.23.0-cp312-cp312-linux_aarch64.whl](https://dev-public.hailo.ai/2025_10/Hailo8/hailort-4.23.0-cp312-cp312-linux_aarch64.whl) | 9,932,383 bytes |
 
-確認できたのは公式案内・HTTPS到達性・HEAD時点の配布状況と版を示すファイル名。**本体のダウンロードやインストール、metadata/ELFの読出しは今回していない**。上記サイズは観測値で、内容の固定checksumには使わない。投稿とHTTPヘッダから配布元のSHA256は確認できず、固定値は記載しない。multipart ETagもSHA256として扱わない。同じURLの内容不変性まで保証した再現環境ではない。
+初回は公式案内・HTTPS HEADを確認した。今回のsystemd失敗対応では両実配布物をMacの一時領域へダウンロードし、deb control/maintainer script/payload、wheel metadataとELF依存を静的確認した。インストール・ARM64コード実行はしていない。上記サイズは観測値で、内容の固定checksumには使わない。配布元の公開SHA256は未確認で固定値は記載しない。multipart ETagもSHA256として扱わない。同じURLの内容不変性まで保証した再現環境ではない。
 
-4.23.0の[公開Python setup.py](https://github.com/hailo-ai/hailort/blob/v4.23.0/hailort/libhailort/bindings/python/platform/setup.py)はversion=4.23.0、linux_aarch64、依存numpy<2を記載する。実wheelのmetadata・Ubuntu 24.04適合・native ABIはこれと別に確認が必要。別版・非公式ミラーへの自動切替やwheelの代替ソースビルドは行わない。
+4.23.0の[公開Python setup.py](https://github.com/hailo-ai/hailort/blob/v4.23.0/hailort/libhailort/bindings/python/platform/setup.py)と、今回読んだ実wheel metadataのversion=4.23.0、linux_aarch64、依存numpy<2は対応する。Ubuntu 24.04上のnative ABI適合は実行未検証。別版・非公式ミラーへの自動切替やwheelの代替ソースビルドは行わない。
 
 ### DockerfileのHailoRT導入方針（今回記述のみ）
 
-両Dockerfileはbuild-tools.shの`install-hailort`を呼ぶ。4.23.0と配布先は共通関数内の固定値で、環境変数やbuild argによる変更口は設けない。将来のビルドでHTTPSからdeb/wheelを取得し、失敗やHTTPエラーで停止する。リダイレクトもHTTPSに限定する。一時ディレクトリは同じRUN内の終了trapで削除し、取得ファイルをイメージへ残さない。`COPY artifacts/`と旧2変数は撤去した。
+両DockerfileはSDK工程の後でCOPYするhailo-runtime-tools.shの`install-hailort`を呼ぶ。4.23.0と配布先は共通関数内の固定値で、環境変数やbuild argによる変更口は設けない。将来のビルドでHTTPSからdeb/wheelを取得し、失敗やHTTPエラーで停止する。リダイレクトもHTTPSに限定する。一時ディレクトリは同じRUN内の終了trapで削除し、取得ファイルをイメージへ残さない。`COPY artifacts/`と旧2変数は撤去済み。
 
 実debのPackage=hailort/Architecture=arm64、CPython 3.12、wheelの対応タグ・Name/Version/Requires-Python/Requires-Dist、debのupstream版とwheel版が両方4.23.0であることを照合する。Debian epoch/revisionを除いた版を比較し、不整合は停止させる。今回この処理を実行したわけではない。
 
 - NumPy・OpenCVはUbuntu aptから導入。Hailo v4.23.0の公開setup.pyが列挙するargcomplete/contextlib2/future/netaddr/netifacesもaptで準備し、metadata読出し用にpython3-packagingを使用する。numpy<2を含む実wheelの要件はmetadataから照合する。
 - 実wheelの依存がapt導入済みのPython distributionと合わなければ停止し、追加依存や版を別途判断する。pipは`--no-deps --no-index`で指定wheelだけを導入し、依存解決でシステムNumPyを置換しない。
 - metadata一致はnative ABIの証明ではない。実wheelのELF/libhailort/glibc/libstdc++/NumPyビルドABIと、aptのcv_bridge/OpenCV/NumPyの組合せは未確認。wheelがNumPy 2等を必要とする場合も、その場でNumPyを更新せず対応配布物を再検討する。
-- debのDepends/maintainer script、Ubuntu 24.04適合、ホストPCIe driver/FWとの整合は実配布物とPiが必要。ホストdriverをコンテナ内へ導入しない。ヘルパーはHailo・NumPy・cv_bridgeのnative moduleをimportして実動作を判定するものではない。
+- 実debはDepends宣言なし。postinstはlibhailort.soリンク作成とsystemctl操作を行い、コンテナ判定に/.dockerenvを使う。この判定に依存せずdpkg-deb --extractで一時展開する方式へ変更。ライブラリ/CLI/header/CMake/copyrightだけを配置し、リンク作成とldconfigを補う。runtimeはdpkg登録せず、サービス/GStreamer plugin/ホストdriverは導入しない。
+- 実ELFのDT_NEEDEDからlibc6/libstdc++6/libgcc-s1をaptで明示準備。CLIとwheelはlibhailort.so.4.23.0を参照する。公式VDevice既定multi_process_service=falseと現在の直接推論経路を静的照合した。preinstのサービス専用/run/hailo等は不要な経路だが、実際のCLI/import/ログ権限/推論は未検証。[deb静的確認記録](hailort_deb_review.md)を参照。
+- Hailo関数をbuild-tools.shから後段ファイルへ移動。今回の分離時は前段ファイル変更で一度キャッシュが無効になる。以降、新ファイルだけの修正ではHailoより前の工程を再利用できる構成。通常版のdriver/app colconはHailo以後なので再実行対象。キャッシュ再利用を実測したわけではない。
 
 ### 入手・配置するファイル
 
@@ -158,8 +160,8 @@ HailoRTのdeb/wheelとYOLOv8m-Pose HEFはビルド時に自動取得し、manife
 
 | 用途 | 入手先・必要形式 | 配置・未確認事項 |
 |---|---|---|
-| ユーザー空間runtime deb | 上記4.23.0 ARM64 HTTPS URLからビルド中に取得 | 手動配置不要。実Package/Version/Architecture/Dependsはビルド時の確認対象 |
-| Python wheel | 上記4.23.0 cp312 ARM64 HTTPS URLからビルド中に取得 | 手動配置不要。実metadata/ELFとlibhailort/NumPy ABIは未検証 |
+| ユーザー空間runtime deb | 上記4.23.0 ARM64 HTTPS URLからビルド中に取得・展開 | 実Package/Version/Architecture、payload、maintainer scriptは静的確認済み。修正後導入は未検証 |
+| Python wheel | 上記4.23.0 cp312 ARM64 HTTPS URLからビルド中に取得 | 実metadata/ELF依存は静的確認済み。libhailort/NumPyの実行ABIは未検証 |
 | ホストPCIe driver/FW | ユーザー確認済み4.23.0を維持 | ホスト変更・コンテナへのkernel driver導入は行わない |
 | YOLOv8m-Pose HEF | 次項の公式v2.18.0 Hailo-8モデルURLから自動取得 | `/models/yolov8m_pose.hef`。Pi実測のSHA256を固定し、ビルド時不一致で停止 |
 | manifest | リポジトリ管理の`models/pose_model.yaml`をCOPY | `/models/pose_model.yaml`。実HEFメタデータ・公式前後処理・実装を静的照合済み。推論成功の保証ではない |
@@ -207,7 +209,7 @@ manifestのdecoder.typeと入力量子化・9出力名・閾値を確定し、ve
 ## 7. 未解決事項・開始条件
 
 1. **EdgeRMソースへのアクセス**。ref/commit/helper API/実依存閉包/COLCON_IGNORE整合を未確認のまま確定しない。
-2. **Hailo配布物とABI**。ホストdriver/FWに合わせruntime/wheelを4.23.0固定。runtime/wheelの公開SHA256・本体metadata/ELFとUbuntu 24.04上のnative ABIは未確認。HEFはPi解析結果と実測SHA256を反映済みだが、実推論は未検証。
+2. **Hailo配布物とABI**。ホストdriver/FWに合わせruntime/wheelを4.23.0固定。runtime/wheelのmetadata/ELFは静的確認済み。公開SHA256・Ubuntu 24.04上のnative ABI・修正後の展開導入は未検証。HEFはPi解析結果と実測SHA256を反映済みだが、実推論は未検証。
 3. **修正したDocker依存の実確認**。RealSense移転URL、rclcpp_action/rosbag2の明示要求、依存列挙・除外、Hailoのpip依存解決禁止をソース上修正済み。private forkの依存充足と実配布物/native ABIは未確認。
 4. **追加source lock**。private forkに不足するpackageと互換版が判明してから5変数を埋める。公開repoが存在するだけでは採用SHAを決定しない。
 5. **実機設定・推論**。デバイス/GID、Livox IP、取付TF校正、時計、実推論・精度・10Hzは未確認。manifestの静的仕様照合は完了。

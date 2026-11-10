@@ -109,3 +109,12 @@
 - .env.exampleのLIVOX_SDK2_COMMITを更新。SDK内version macroは1.3.3のため、環境準備文書・READMEもv1.3.1後の修正commitとして更新。Driver SHAは維持。SDKソースへのパッチ・強制include・Dockerfile変更は行っていない。
 - 上流差分にはMID-360S API追加、DirectLidarStateInfo末尾拡張、ログ/debug記録変更も含む。既存バイナリのABI互換を保証するものではなく、SDKとDriverを共にソース再ビルドする構成。Piでのビルド・実通信・ログ/停止挙動はrequires Pi verification。
 - 無関係な処理・設計v2.6は未変更。公式ソース閲覧・設定編集・静的差分確認のみ。ビルド・テスト・lint・構文チェック・ROS実行・Pi操作・コミット・Pushは行わず停止する。
+
+## HailoRT debのsystemd失敗修正とキャッシュ境界分離（2026-11-10）
+
+- ユーザーのPi Dockerビルドでhailort postinstのsystemd接続失敗を受領。公式4.23.0 ARM64 deb/cp312 wheelをMacの一時領域へダウンロードし、ar/bsdtar/objdumpによる静的閲覧のみ実施。deb control、preinst/postinst/postrm、payload、wheel metadata、CLI/libhailort/Python拡張のDT_NEEDEDを確認。配布物・maintainer scriptは実行していない。
+- debにDepends宣言はなく、postinstはlibhailort.soリンク作成と/.dockerenv条件下のsystemctlを含む。aptでdebをconfigureする処理を撤去し、dpkg-deb --extract後に直接推論用ライブラリ・CLI・header/CMake・copyrightだけを配置。必要リンクとldconfigを補完し、ELFのC/C++依存はaptのlibc6/libstdc++6/libgcc-s1で明示準備する記述へ。
+- 公式4.23.0 get_vdevice_paramsのmulti_process_service=falseと現行hp.VDevice()をソース照合。サービスunit/実行ファイル・GStreamer plugin・kernel driverは導入せず、サービス専用preinstディレクトリも作らない。runtimeはdpkg登録しない。動的リンク・非rootログ権限・サービスなし実推論はrequires Pi verification。
+- install-hailort/prepare-pose-modelを新hailo-runtime-tools.shへ移し、両DockerfileのSDK/driverソース工程後（EdgeRMはdriver構築後）でCOPY/sourceする。分離時はbuild-tools.sh変更により前段キャッシュが一度無効になるが、その後の新ファイルだけの変更では前段を維持できる配置。通常版の後段driver/app colconは再実行対象。実キャッシュ利用は未確認。
+- HailoRT/ホストdriver 4.23.0、HEF URL/版/SHA、pip no-deps/no-index・NumPy保持は維持。ROSノード・msg/srv・設計v2.6は未変更。README、環境準備文書、配布物案内、.env.exampleの参照を更新し、docs/hailort_deb_review.mdへ確認根拠と省略の影響を記録。
+- MacでのDocker/ARM64ビルド、テスト、lint、構文チェック、CLI/Python拡張実行、ROS実行、Pi操作、コミット・Pushは未実施。静的差分確認後に停止する。

@@ -58,7 +58,7 @@ MID-360 ──┘   ATS      └─ /sync/points ─ lidar_preprocess_node ─ /
 
 HailoRTは両Dockerfileから共通処理で**4.23.0固定**のruntime debとcp312 ARM64 wheelをビルド中に自動取得します。`artifacts/`への事前配置と旧`HAILORT_DEB` / `HAILORT_WHEEL`設定は不要です。既存`.env`からこれら2変数を削除できます。ホストのPCIeドライバ・FWは変更せず、コンテナにもカーネルドライバをインストールしません。
 
-取得先は[公式コミュニティの案内](https://community.hailo.ai/t/system-freeze-using-hailo8-pcie-card-on-a-beelink-eq14-n150-with-frigate-container-on-debian-13/17726/12)に基づく次のHTTPS URLです。両URLのHEAD応答は200を確認済みですが、ファイル本体のmetadata・native ABI・ビルド成功は未確認です。公開SHA256は確認できていないため固定checksumは設定していません。
+取得先は[公式コミュニティの案内](https://community.hailo.ai/t/system-freeze-using-hailo8-pcie-card-on-a-beelink-eq14-n150-with-frigate-container-on-debian-13/17726/12)に基づく次のHTTPS URLです。配布物をダウンロードし、debのcontrol/maintainer scriptとwheel metadata・ELF依存を静的確認しました。native ABIの実動作と修正後ビルドは未検証です。配布元公開SHA256は確認できていないためruntime/wheelの固定checksumは設定していません。
 
 - [HailoRT 4.23.0 ARM64 deb](https://dev-public.hailo.ai/2025_10/Hailo8/hailort_4.23.0_arm64.deb)
 - [HailoRT 4.23.0 CPython 3.12 ARM64 wheel](https://dev-public.hailo.ai/2025_10/Hailo8/hailort-4.23.0-cp312-cp312-linux_aarch64.whl)
@@ -158,8 +158,17 @@ EdgeRM版では`.env`の`EDGERM_URL`、`EDGERM_RUNTIME_NAME`、`EDGERM_VERBOSE`�
 
 - `git-clone(repository, ref, commit)`は専用BuildKitソースキャッシュ内でだけ動作し、既存checkoutの更新、固定commitへの切替、submodule同期・取得を行います。reset/cleanは実パスが`/var/cache/edge-build/`配下の場合だけ許可します。通常ROS版ではSDK/ドライバ取得、EdgeRM版ではそれに加えて改変ROSと不足依存の取得に使用します。取得結果はイメージ内`/opt/edge-source-locks/`へ記録します。
 - `colcon-build(base_path, install_base, targets...)`はテスト無効化、共通CMake設定、逐次パッケージビルドと`BUILD_JOBS`管理をまとめます。`--packages-up-to`でソース依存も対象にし、通常ROS版のドライバ/アプリ、EdgeRM版のROS underlay・ドライバ・アプリで使用します。
+
+Hailo処理は[hailo-runtime-tools.sh](hailo-runtime-tools.sh)へ分離し、SDK構築・ドライバソース取得の後でCOPY・sourceします（EdgeRM版はドライバ構築の後）。
+
 - `install-hailort()`は4.23.0のdeb/wheelをHTTPSで一時ディレクトリへ取得し、実debのARM64/版、wheelのCPython 3.12対応タグ・版・依存metadataを照合します。取得失敗・版違い・要件不整合でビルドを停止し、別版やミラーへ切り替えません。既知のPython依存はaptで用意し、pipは`--no-deps --no-index`で指定wheelだけを導入するため、依存解決でaptのNumPyを置換しません。終了時にダウンロード一時ファイルを削除します。この処理とnative ABI適合は未検証です。
 - `prepare-pose-model()`は固定v2.18.0 Hailo-8 HEFをHTTPSで取得し、取得失敗・空ファイル・指定SHA256不一致で停止します。同梱manifestのフラグ変更やHEFの実行は行いません。
+
+HailoRT debは`apt-get install`せず、`dpkg-deb --extract`で一時展開します。ライブラリ・CLI・公開ヘッダ・CMake設定・copyrightだけを配置し、postinstが作る`libhailort.so`リンクを補って`ldconfig`を行います。必要なC/C++実行ライブラリはaptで導入します。systemd unit、サービス実行ファイル、GStreamer pluginは配置しません。現在の単一プロセスVDeviceは公式4.23.0の既定`multi_process_service=false`を使うため、サービス起動を要求しない経路です。
+
+`hailort`はdpkgのインストール済みパッケージとして登録しません。APTでのHailoRT更新・削除を前提とせず、固定版イメージを再ビルドして管理します。CLI/Pythonの動的リンク・非root権限・実推論はPiで未検証です。
+
+今回の分離では前段COPY対象のbuild-tools.shも変わるため、一度は前段キャッシュが無効になります。以降、hailo-runtime-tools.shだけを変更する場合はHailoより前のROS/RealSense/Livox工程へ影響しない配置です。通常版のドライバ/app colcon構築はHailoの後なので再実行対象です。ベース・SDK SHA・前段Docker命令等が同じことが条件で、実際のキャッシュ再利用は今回確認していません。[deb内容・省略処理の影響と確認項目](docs/hailort_deb_review.md)を記録しています。
 
 [ros_entrypoint.sh](ros_entrypoint.sh)は両イメージで共通です。必須のROS setupとworkspace setupの存在を確認し、順に読み込んで`exec "$@"`します。欠けている場合は理由を示して起動を失敗させます。旧`docker/entrypoint.sh`と二重の生成処理は残していません。
 

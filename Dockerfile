@@ -58,9 +58,10 @@ git-clone https://github.com/Livox-SDK/livox_ros_driver2.git "$LIVOX_DRIVER_COMM
 cp -a . /opt/edge_ws/src/livox_ros_driver2
 cp /opt/edge_ws/src/livox_ros_driver2/package_ROS2.xml /opt/edge_ws/src/livox_ros_driver2/package.xml
 BUILD
-RUN source /usr/local/lib/edge-build-tools.sh && install-hailort
+COPY hailo-runtime-tools.sh /usr/local/lib/edge-hailo-runtime-tools.sh
+RUN source /usr/local/lib/edge-hailo-runtime-tools.sh && install-hailort
 COPY models/pose_model.yaml /models/pose_model.yaml
-RUN source /usr/local/lib/edge-build-tools.sh && prepare-pose-model
+RUN source /usr/local/lib/edge-hailo-runtime-tools.sh && prepare-pose-model
 COPY src/fall_detection_msgs/ src/fall_detection_msgs/
 COPY src/fall_detection_edge/ src/fall_detection_edge/
 RUN <<'BUILD'
