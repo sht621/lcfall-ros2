@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <transport_descriptors>
+    <transport_descriptor>
+      <transport_id>edge_udp</transport_id>
+      <type>UDPv4</type>
+    </transport_descriptor>
+    <transport_descriptor>
+      <transport_id>edge_shm</transport_id>
+      <type>SHM</type>
+      <!-- 640x480 RGB8 is 921600 bytes; retain room for queued images. -->
+      <segment_size>16777216</segment_size>
+    </transport_descriptor>
+  </transport_descriptors>
+  <participant profile_name="edge_transport" is_default_profile="true">
+    <rtps>
+      <userTransports>
+        <transport_id>edge_udp</transport_id>
+        <transport_id>edge_shm</transport_id>
+      </userTransports>
+      <useBuiltinTransports>false</useBuiltinTransports>
+    </rtps>
+  </participant>
+</profiles>

@@ -10,6 +10,8 @@ x-runtime: &runtime
   platform: linux/arm64
   network_mode: host
   init: true
+  # Fast DDS creates a separate SHM segment for each DDS participant.
+  shm_size: 256m
   stop_grace_period: 5s
   tmpfs:
     - /tmp:rw,nosuid,nodev,mode=1777,size=512m
@@ -17,17 +19,18 @@ x-runtime: &runtime
     ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
     ROS_LOCALHOST_ONLY: '0'
     RMW_IMPLEMENTATION: rmw_fastrtps_cpp
+    FASTRTPS_DEFAULT_PROFILES_FILE: /opt/edge-config/fastdds.xml
     PYTHONPATH: /models
     LIVOX_CONFIG_PATH: /opt/edge-config/MID360_config.json
   devices:
     - ${HAILO_DEVICE:-/dev/hailo0}:/dev/hailo0
     - ${REALSENSE_USB_DEVICE:?Set actual D455 /dev/bus/usb/BBB/DDD path}:${REALSENSE_USB_DEVICE}
   group_add:
-    - ${HAILO_GID:?Set numeric Hailo device group}
     - ${USB_GID:?Set numeric D455 USB group}
   volumes:
     - ./src/fall_detection_edge/config:/opt/edge-params:ro
     - ./config/livox/MID360_config.json:/opt/edge-config/MID360_config.json:ro
+    - ./config/fastdds/edge.xml:/opt/edge-config/fastdds.xml:ro
   logging:
     driver: local
 

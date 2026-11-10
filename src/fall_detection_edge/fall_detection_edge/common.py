@@ -46,7 +46,11 @@ class Console:
         if now - self.last.get(key, -math.inf) >= interval:
             self.last[key] = now
             log = self.node.get_logger()
-            (log.warning if warning else log.info)(message)
+            # rclpy caches severity per source call site; keep distinct lines.
+            if warning:
+                log.warning(message)
+            else:
+                log.info(message)
 
 
 def steady_timer(node, period, callback):

@@ -1,5 +1,49 @@
 # エッジ実装進捗
 
+## オフロード通信量の簡易比較（2026-11-10）
+
+- 実装/設計変更なしでCLI hz/bwを各約20秒測定。圧縮プラグイン未導入のため既存OpenCVの一時Publisher（JPEG品質90）を使用し、終了済み。
+- 平均ROSサイズ: RGB921672 bytes、JPEG83982.68 bytes、Pose521.76 bytes。Pose測定窓は検出候補2–3件。共通10Hzの生RGB比でJPEG90.888%、Pose99.943%削減。
+- 比較中の本番最終出力は約9.993Hzで継続。実回線性能・詳細最適化は対象外。[条件・コマンド・実測と換算表](offload_bandwidth_comparison_2026-11-10.md)へ記録。既存ローカル変更を保持。
+
+## 10Hz未達の原因調査とDDS共有メモリ設定（2026-11-10）
+
+- ノード内部の一時計測でPose約33–35ms、ROI約4–6ms、ATS後Publish約2–3msを確認。計算処理より前のRGB配送で件数減少が起きていた。
+- 既定SHM512KiBはVGA RGB8 payload921600 bytesより小さい。4MiBへ拡大で最終約9.67Hzへ改善、同じtransport構成で512KiBへ戻すとATS約5–6Hzへ再低下。共有メモリ容量不足が主因と判断。
+- Fast DDS XMLを追加、参加者SHM16MiB・コンテナ/dev/shm256MiBをComposeへ設定。QoS・ATS・集約・モデル仕様は維持。イメージ再ビルドなし。既存ローカル差分を保持。
+- 一時計測コードを外した通常ノードで約60秒、ATS/Pose/ROI/最終それぞれ600件、最終9.999Hz、600/600元stamp一致、重複0。通常ROSは稼働継続。長時間安定性・精度・EdgeRM通信は未確認。
+- [調査と比較条件](pipeline_10hz_investigation.md)。ログ例外修正はPythonソースの問題であり、Dockerビルド処理の不具合ではないことも説明。
+
+## RGB解像度640×480への変更と再確認（2026-11-10）
+
+- ユーザー指示でedge.yamlを640×480へ変更しREADMEを更新。D455/Poseの入力寸法を統一、30fps/RGB8とHEF640×640は維持。既存ローカル変更を保持。
+- bind mountの設定を使って通常ROSコンテナを再起動。今回ビルドなし。実profileとPoseパラメータを照会確認。
+- 約60秒で実画像1798枚/29.943Hz、最終349件/5.823Hz。全件PairInfoと元stamp一致、重複なし、COCO17/BBox/score数値形式エラー0。画像追加購読ありの測定であり、持続10Hzは未達。
+- 画像購読なしの再測定は約30秒205件/7.005Hz、全件stamp一致・重複なし。前回と比較して明確な性能改善は未確認。640×480の通常ROS全系を稼働継続。
+- [詳細記録](pi_validation_2026-11-10.md)。ログ例外修正の所属はfall_detection_edgeのcommon.py（Console.show）。
+
+## Pi実機でのD455復旧・実画像推論・通常ROS全系確認（2026-11-10）
+
+- ユーザーの明示許可とsudo/Docker権限を確認して実機作業。D455のuvcvideo interfaces一時unbind後、同じ1280×720/30fps/RGB8設定で画像受信成功。競合の詳細原因と再起動時の手動操作不要化は未解決。
+- 実画像60秒で597回のHailo推論、COCO17/BBox/scoreの数値契約エラー0、中央値31.978ms。Livox実点群・tag uint8も確認。
+- 全系のConsole INFO/WARN切替でrclpy例外が再現。common.pyの呼出し位置を分離する最小修正を行い、実rclpy回帰確認と全系受信を実施。元イメージを別タグ保存し、common.py COPYだけの追加層で通常ROSタグを更新。依存・SDK・ROSの再ビルドなし。
+- 約30秒で最終215件、7.216Hz、全件元stampペア一致、重複なし、slop範囲内。通常ROSパイプライン成立を確認したが持続10Hzは未達。サービス通信・精度・長時間負荷は未確認。
+- [測定条件と結果](pi_validation_2026-11-10.md)を追記。旧検証コンテナは停止保持し、通常ROS全系はブリッジ無効で稼働中。既存Compose差分などを保持。今回は実機検証と修正ファイルのみのDocker層作成を実施したため、下記の未実施記述は過去段階の履歴。
+
+## D455画像配信のソース調査（2026-11-10）
+
+- ユーザー報告のHailo認識/HEFロード/単色実推論48.2ms成功を受領。過去のHailo初期化失敗記録は履歴として保持し、実RGB推論/全系成立とは区別する。
+- 固定RealSense wrapper/SDKとJazzy hzのソースを閲覧。起動完了・Publisher存在は実画像配信の証拠ではなく、画像Publishに購読者数の条件がある。報告のReliable/Transient LocalとhzのBest Effort/Volatileは、この2項目では非互換でない。USB制御転送警告だけから画像停止の原因を断定しない。
+- [D455調査手順](d455_image_delivery_investigation.md)を追加。現在のlcfall-d455-testの割当/起動引数/既存ログと、同コンテナ内画像・CameraInfo受信を最初のPi確認として分離。現設定は変更せず、結果に応じてUSB・画像Publish・DDSを切り分ける。
+- 原因未確定。既存ローカル差分を保持し、進捗への追記と新規調査文書だけを作成。今回はビルド・テスト・ROS/Docker実行・Piハードウェア操作を実施していない。再ビルド不要。
+
+## Pi実機の通常ROS起動確認（2026-11-10、明示許可後）
+
+- ユーザーのビルド完了報告と通常ROS実コンテナ検証の許可を受け、既存イメージをブリッジ無効で起動。
+- D455のRGBプロファイル開始、Livox初期化、静的TF発行をログ確認。PoseはHailo open errno 6で失敗し、全系停止。ホストCLIでも再現。
+- Hailoドライバ再読込と対象PCIe resetを試行したが復旧未確認。最終メッセージ受信・実推論・全系10Hzは未確認。Livox終了時exit -11も記録。
+- 今回の実測条件・結果は [Pi起動確認記録](pi_validation_2026-11-10.md)。以下の「未実施」は各過去段階の履歴として保持する。
+
 2026-11-10 / `feature/edge-pipeline`。正本: [設計v2.6](edge_pipeline_design_v2.6.md)（変更なし）。
 
 **Implementation complete; tests/build/hardware validation NOT RUN**

@@ -45,6 +45,8 @@ MID-360 ──┘   ATS      └─ /sync/points ─ lidar_preprocess_node ─ /
 
 ## Pi段階の準備
 
+Composeは[Fast DDS設定](config/fastdds/edge.xml)を読み、参加者ごとの共有メモリ領域を16MiB、コンテナの`/dev/shm`上限を256MiBにします。Piで既定512KiBの領域が640×480 RGB8の1枚（921600バイト）より小さい状態では、ATSへの画像配送が欠落し全系が約5–7Hzへ低下しました。設定の比較結果は[実機検証記録](docs/pi_validation_2026-11-10.md)に記録します。QoSやATSのslop/queueを変更する設定ではありません。XMLはbind mountのため、反映はコンテナ再作成で行い、イメージ再ビルドは不要です。EdgeRM版での性能は未検証です。
+
 [.env.example](.env.example)をもとに`.env`を作り、以下を実機に合わせて設定します。既存`.env`がある場合は変数名を移行してください。従来の`*_REF`や`WITH_EDGERM`、`EDGE_ROS_BASE_IMAGE`は使用しません。
 
 | 設定 | 内容 |
@@ -73,7 +75,7 @@ manifestはユーザー提供のPi実HEF解析結果（UINT8 NHWC入力、9 raw�
 
 Livox SDK2は上流のUbuntu 24.04ビルド修正済みcommit `68ae1e1dc77f61f03c95d7c2809831e198d0aedd`（SDK内表記1.3.3）へ固定し、Driver 1.2.6は維持します。既存`.env`を使う場合も`LIVOX_SDK2_COMMIT`を更新してください。SDKへのローカルパッチや強制includeオプションは追加していません。DriverのAPI・ライブラリ配置と静的に整合しますが、ビルド・実通信は未検証です。
 
-D455はRGBのみ1280×720×30の初期設定です。RSUSB版librealsenseとrealsense-rosをソースから構築します。USB再接続でデバイス番号が変わった場合は`.env`を更新してください。LivoxはPointCloud2 / 10Hz / `livox_frame`を初期値とし、[Livox JSON](config/livox/MID360_config.json)の旧IP（ホスト192.168.1.50 / LiDAR .198）を実環境へ合わせます。JSON内の外部変換はidentityを維持し、TFとの二重変換を避けます。
+D455はRGBのみ640×480×30、RGB8の設定です（2026-11-10のユーザー指示で1280×720から変更）。Poseの元画素座標も640×480基準になり、将来の受信サーバ設定も合わせます。HEF入力は640×640のままletterboxで変換します。RSUSB版librealsenseとrealsense-rosをソースから構築します。USB再接続でデバイス番号が変わった場合は`.env`を更新してください。LivoxはPointCloud2 / 10Hz / `livox_frame`を初期値とし、[Livox JSON](config/livox/MID360_config.json)のIPを実環境へ合わせます。JSON内の外部変換はidentityを維持し、TFとの二重変換を避けます。
 
 ## EdgeRMソースビルドの追加準備
 
