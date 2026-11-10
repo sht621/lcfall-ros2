@@ -49,3 +49,9 @@
 - `.env.example`、`.dockerignore`、README、AGENTSの日本語完了報告を更新。以前のソースのみレビュー/Pi引継ぎにある旧bindingオプションと単一Docker切替の説明は過去時点の履歴であり、現行の構築説明はREADMEを優先する。
 - 未解消: ZIPにEdgeRM本体とoptサブモジュールの中身はなく、GitHubの非公開ソース読出しも404。`src/rosdep-install.py`の内部実装/選択commitのパッケージ一覧は確認できない。参考と同じ呼出し方と存在guardを記述。公開manifestから画像・診断・PCL依存を整理し、不足時の固定ソース追加を記述したが、固定SHAとJazzy/ARM64適合は未選定。requires Pi verification。
 - 後のPi項目: 両Dockerビルド、apt pinでの依存充足、Hailo/CPython ABI、センサ権限・時計・tag、Launch設定反映、通常ROS/EdgeRM通信とFuture解放、全系10Hzとメモリ/温度。今回もビルド・テスト・lint・構文チェック・ROS/Docker実行・疑似データ・ハードウェア検証・コミット・Pushは行っていない。ソース差分確認後に停止する。
+
+## Docker静的レビュー指摘の修正（2026-11-10）
+
+- 共通ログ設定をlocalドライバへ変更。max-size/max-fileは指定せず、両サービスに適用。READMEへlogs -fの操作例を追記。ROSノードのログ出力は未変更。
+- image_commonはimage_transport/camera_info_managerと必要なcamera_calibration_parsersを個別確認。不足時に固定commitを取得し、追加側の既存同名パッケージ・不要パッケージをCOLCON_IGNOREで除外する。その他の補完リポジトリも同じ除外処理を適用し、追加後に一覧を更新する。
+- 固定SHAは推測せず未設定を維持。非公開EdgeRM helperの実装・COLCON_IGNOREの扱い、選択commitの依存充足、両サービスのログ取得/ローテーションは requires Pi verification。ソース閲覧と編集・Git差分確認のみで、ビルド/テスト/lint/構文チェック/実行/コミット/Pushは未実施。

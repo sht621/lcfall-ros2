@@ -84,6 +84,8 @@ EdgeRM版は次の順で構築する記述になっています。
 | pcl_conversions | `ros-perception/perception_pcl` | `PERCEPTION_PCL_COMMIT` |
 | pcl_msgs | `ros-perception/pcl_msgs` | `PCL_MSGS_COMMIT` |
 
+`image_common`は`image_transport`と`camera_info_manager`の両方、および後者の依存`camera_calibration_parsers`を確認し、不足があれば固定commitから補完します。各補完リポジトリでは必要な不足パッケージだけを有効にし、既存ソースと同名のパッケージや不要パッケージは追加側の`COLCON_IGNORE`で除外します。補完後に一覧を更新し、必要なパッケージが揃わない場合は停止します。
+
 これらの取得元はZIPの`.gitmodules`と公式の[RealSense依存](https://github.com/realsenseai/realsense-ros/blob/ros2-master/realsense2_camera/package.xml)、[Livox依存](https://github.com/Livox-SDK/livox_ros_driver2/blob/master/package_ROS2.xml)、[PCL変換依存](https://github.com/ros-perception/perception_pcl/blob/ros2/pcl_conversions/package.xml)をソース閲覧して整理しました。閲覧したブランチをそのままJazzy互換の固定版と扱っていません。実際に選択するSHAと、その時点のmanifestの照合が必要です。Nav2/TurtleBot3/音声/可視化アプリ/GPU推論サーバは導入・ビルド対象にしていません。
 
 **未確認点:** EdgeRM非公開リポジトリ内の`src/rosdep-install.py`はZIPに含まれず、接続先からの読出しも404でした。その内部実装と、選択予定commitの実パッケージ一覧は未確認です。DockerfileはZIPと同じ呼出し形式でこのファイルを使用し、存在しない場合や必要なソースパッケージが不足する場合は理由を表示して停止します。apt pinで依存導入が止まった場合は不足ソースを確認する必要があり、pinを外して公式ROSへ置換する方針ではありません。APIが適合すること、全依存が充足することはまだ立証していません。
@@ -143,7 +145,14 @@ EdgeRM版では`.env`の`EDGERM_URL`、`EDGERM_RUNTIME_NAME`、`EDGERM_VERBOSE`�
 
 [ros_entrypoint.sh](ros_entrypoint.sh)は両イメージで共通です。必須のROS setupとworkspace setupの存在を確認し、順に読み込んで`exec "$@"`します。欠けている場合は理由を示して起動を失敗させます。旧`docker/entrypoint.sh`と二重の生成処理は残していません。
 
-ComposeはARM64、host network、Hailo/D455実デバイス、数値GID、モデル・Livox・パラメータのread-onlyマウント、Domain、tmpfs、一時ログ、停止猶予をYAMLアンカーで共用します。`privileged`やGPU runtimeは使用しません。ROS/Launch既定ログは`/tmp` tmpfs、Dockerログ永続化は無効です。運用時はアタッチしたコンソールを使用します。
+ComposeはARM64、host network、Hailo/D455実デバイス、数値GID、モデル・Livox・パラメータのread-onlyマウント、Domain、tmpfs、一時ログ、停止猶予をYAMLアンカーで共用します。`privileged`やGPU runtimeは使用しません。ROS/Launch既定ログは`/tmp` tmpfsです。両サービスのDockerログは`local`ドライバに保存し、`max-size`・`max-file`を指定せず標準のローテーション設定を使用します。
+
+Pi段階で起動後、使用しているサービスのログを追跡できます（今回未実行）。
+
+```bash
+docker compose logs -f edge
+docker compose logs -f edge-edgerm
+```
 
 ## 未解決事項とPiでの確認
 

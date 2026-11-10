@@ -32,7 +32,7 @@ x-runtime: &runtime
     - ./src/fall_detection_edge/config:/opt/edge-params:ro
     - ./config/livox/MID360_config.json:/opt/edge-config/MID360_config.json:ro
   logging:
-    driver: none
+    driver: local
 
 services:
   edge:

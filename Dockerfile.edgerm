@@ -61,17 +61,48 @@ export EDGERM_ROS2_DIRECTORY="$PWD"
 # The reference ZIP has empty opt submodules, not their sources or gitlink locks.
 # Add only missing image/diagnostic/PCL dependencies. No GUI/robot/voice stack.
 available_packages="$(colcon list --base-paths src --names-only)"
-while read -r package directory repository commit; do
-    if ! grep -Fxq "$package" <<< "$available_packages"; then
+# image_common also supplies camera_info_manager's camera_calibration_parsers dependency.
+while read -r required_packages directory repository commit; do
+    IFS=, read -r -a required <<< "$required_packages"
+    missing=()
+    for package in "${required[@]}"; do
+        if ! grep -Fxq "$package" <<< "$available_packages"; then
+            missing+=("$package")
+        fi
+    done
+    if (( ${#missing[@]} )); then
         if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "Missing $package source; supply the full commit lock for $directory" >&2
+            echo "Missing ${missing[*]} source; supply the full commit lock for $directory" >&2
             exit 1
         fi
-        mkdir -p "src/edge-opt/$directory"
-        (cd "src/edge-opt/$directory" && git-clone "$repository" "$commit" "$commit")
+        dependency_source="src/edge-opt/$directory"
+        mkdir -p "$dependency_source"
+        (cd "$dependency_source" && git-clone "$repository" "$commit" "$commit")
+        # Enumerate the new checkout in isolation before adding it to the full
+        # package graph. Keep only missing, explicitly needed packages. Existing
+        # fork packages win; extras and duplicate copies are excluded from colcon.
+        dependency_packages="$(colcon list --base-paths "$dependency_source")"
+        while IFS=$'\t' read -r package package_path package_type; do
+            if [[ -z "$package" || -z "$package_path" ]]; then
+                echo "No usable package listing in locked $directory checkout" >&2; exit 1
+            fi
+            keep=false
+            for needed in "${missing[@]}"; do
+                if [[ "$package" == "$needed" ]]; then keep=true; break; fi
+            done
+            if [[ "$keep" == false ]]; then
+                touch "$package_path/COLCON_IGNORE"
+            fi
+        done <<< "$dependency_packages"
+        available_packages="$(colcon list --base-paths src --names-only)"
+        for package in "${required[@]}"; do
+            grep -Fxq "$package" <<< "$available_packages" || {
+                echo "Locked $directory checkout does not supply required package: $package" >&2; exit 1;
+            }
+        done
     fi
 done <<SOURCES
-image_transport image_common https://github.com/ros-perception/image_common.git ${IMAGE_COMMON_COMMIT:-UNSET}
+image_transport,camera_info_manager,camera_calibration_parsers image_common https://github.com/ros-perception/image_common.git ${IMAGE_COMMON_COMMIT:-UNSET}
 cv_bridge vision_opencv https://github.com/ros-perception/vision_opencv.git ${VISION_OPENCV_COMMIT:-UNSET}
 diagnostic_updater diagnostics https://github.com/ros/diagnostics.git ${DIAGNOSTICS_COMMIT:-UNSET}
 pcl_conversions perception_pcl https://github.com/ros-perception/perception_pcl.git ${PERCEPTION_PCL_COMMIT:-UNSET}
